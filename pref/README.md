@@ -41,6 +41,39 @@ alias pd='popd >/dev/null'
 
 You can modify the `profile` file in the module directory to change what gets added to the user's shell profile.
 
+## Private Customization
+
+You can create private profile customizations without modifying the public module:
+
+1. Create one of these files:
+   - `$HOME/.yamc/pref/profile` (user-specific customizations)
+   - `/etc/yamc/pref/profile` (system-wide customizations)
+
+2. Add your custom bash profile settings to this file.
+
+3. When you run the module, it will automatically detect and use your private 
+   profile instead of the default one provided with the module.
+
+This approach allows you to:
+- Keep sensitive or personal customizations private
+- Maintain your own settings separate from the public repository
+- Easily update the YAMC project without losing your customizations
+
+Example of a private profile file:
+```bash
+#Local additions:
+
+# Custom environment variables
+export MY_PRIVATE_VAR="secret value"
+
+# Personal aliases
+alias myserver='ssh user@private-server.example.com'
+alias mydb='mysql -u username -p mydatabase'
+
+# Company-specific settings
+export COMPANY_API_KEY="1234567890"
+```
+
 ## Notes
 
 - This module only adds the customizations once (idempotent)

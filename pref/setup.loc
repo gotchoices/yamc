@@ -16,4 +16,26 @@ else
   echo "No inputrc file found. Shell command editing preferences will not be copied."
 fi
 
+# Look for a custom profile file
+CUSTOM_PROFILE_LOCATIONS=(
+  "$HOME/.yamc/pref/profile"     # User-specific profile customizations
+  "/etc/yamc/pref/profile"       # System-wide custom profile
+)
+
+# Check for custom profile in the various locations
+for CUSTOM_PROFILE in "${CUSTOM_PROFILE_LOCATIONS[@]}"; do
+  if [ -f "$CUSTOM_PROFILE" ]; then
+    echo "Found custom profile at $CUSTOM_PROFILE"
+    cp "$CUSTOM_PROFILE" "$MOD_TMP/custom_profile"
+    echo "USE_CUSTOM_PROFILE=true" >> "$MOD_TMP/env"
+    break
+  fi
+done
+
+# If no custom profile was found, note this in the environment
+if [ ! -f "$MOD_TMP/custom_profile" ]; then
+  echo "No custom profile found. Using default profile from module."
+  echo "USE_CUSTOM_PROFILE=false" >> "$MOD_TMP/env"
+fi
+
 echo "Local setup completed."

@@ -53,8 +53,14 @@ else
     echo "" >> "$TARGET_PROFILE"
   fi
   
-  # Append our profile customizations
-  cat "$PROFILE_FILE" >> "$TARGET_PROFILE"
+  # Determine which profile file to use
+  if [ "$USE_CUSTOM_PROFILE" = "true" ] && [ -f "$MOD_TMP/custom_profile" ]; then
+    echo "Using custom profile from user's private configuration."
+    cat "$MOD_TMP/custom_profile" >> "$TARGET_PROFILE"
+  else
+    echo "Using default profile from module."
+    cat "$PROFILE_FILE" >> "$TARGET_PROFILE"
+  fi
   echo "Profile customizations added successfully."
 fi
 
