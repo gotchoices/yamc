@@ -1,0 +1,44 @@
+#Setup misc configurations for linux virtual under OSX on Kyle's macbook
+network="$(ip -4 addr show | grep 192.168 | awk '{print $2}' | cut -d'/' -f1 | cut -d'.' -f1-3 | head -n 1)"
+address="$(ip -4 addr show | grep 192.168 | awk '{print $2}' | cut -d'/' -f1)"
+
+echo "network:$network"
+echo "dist:$dist release:$release"
+
+if [ ! -d /home/kyle/share ]; then
+    echo "Creating share dir in /home/kyle"
+    mkdir /home/kyle/share
+    chown kyle.kyle /home/kyle/share
+fi
+
+if [ ! -d /root/systems ]; then
+    echo "Creating systems dir in /root"
+    mkdir /root/systems
+fi
+
+if ! grep "$network" /etc/hosts >/dev/null; then
+    echo "Adding mac to /etc/hosts"
+    echo >>/etc/hosts "$network.1	mac"
+    echo >>/etc/hosts "$address	$(hostname -s) $(hostname)"
+fi
+
+if ! grep 'vboxsf' /etc/fstab >/dev/null; then
+    echo "Adding mounts to /etc/fstab"
+    echo >>/etc/fstab "share	/home/kyle/share	vboxsf	uid=1000,gid=1000,rw,comment=systemd.automount	0 0"
+    echo >>/etc/fstab "systems	/root/systems	vboxsf	defaults,rw,comment=systemd.automount	0 0"
+    echo >>/etc/fstab "#mac:/Users/kyle/share	/home/kyle/share	nfs	defaults,rw,comment=systemd.automount	0 0"
+    echo >>/etc/fstab "#mac:/Users/kyle/systems	/root/systems	nfs	defaults,rw,comment=systemd.automount	0 0"
+    
+#    echo >>/etc/fstab "mac:/Users/kyle/share	/home/kyle/share	nfs	defaults"
+#    echo >>/etc/fstab "mac:/Users/kyle/systems	/root/systems		nfs	defaults"
+fi
+
+if [ ! -d /root/systems/setup ]; then
+    echo "Mounting vbox filesystems"
+    mount -a -t vboxsf
+fi
+
+#Make sure firewall is off
+#--------------------------------------
+systemctl stop firewalld
+systemctl mask firewalld	2>/dev/null

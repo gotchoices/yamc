@@ -1,0 +1,235 @@
+#!/bin/bash
+# guestadd/setup - Install VirtualBox Guest Additions
+#
+# This script installs VirtualBox Guest Additions on a virtual machine.
+# It handles the installation process for most Linux distributions.
+#
+# Usage: yamc -h hostname -u root guestadd [version]
+
+set -e  # Exit on any error
+
+echo "===== Installing VirtualBox Guest Additions ====="
+
+# Determine Linux distribution
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    DISTRO="$ID"
+    VERSION="$VERSION_ID"
+    echo "Detected distribution: $DISTRO $VERSION"
+else
+    echo "Unable to determine distribution, will attempt generic installation"
+    DISTRO="unknown"
+fi
+
+# Install required dependencies based on distribution
+echo "Installing required dependencies..."
+case "$DISTRO" in
+    ubuntu|debian|linuxmint)
+        apt-get update -q
+        apt-get install -y dkms build-essential linux-headers-$(uname -r)
+        ;;
+    fedora|centos|rhel)
+        yum -y update
+        yum -y install dkms gcc make perl kernel-devel kernel-headers bzip2
+        ;;
+    opensuse*|suse|sles)
+        zypper refresh
+        zypper install -y dkms gcc make kernel-devel kernel-default-devel
+        ;;
+    arch|manjaro)
+        pacman -Sy --noconfirm base-devel linux-headers dkms
+        ;;
+    *)
+        echo "Warning: Unknown distribution. Installing common requirements..."
+        if command -v apt-get >/dev/null; then
+            apt-get update -q
+            apt-get install -y dkms build-essential linux-headers-$(uname -r)
+        elif command -v yum >/dev/null; then
+            yum -y update
+            yum -y install dkms gcc make perl kernel-devel kernel-headers
+        fi
+        ;;
+esac
+
+# Function to mount the ISO and install Guest Additions
+install_from_iso() {
+    local ISO_PATH="$1"
+    
+    echo "Mounting VirtualBox Guest Additions ISO..."
+    mkdir -p /mnt/vbox
+    mount -o loop "$ISO_PATH" /mnt/vbox
+    
+    echo "Running VirtualBox Guest Additions installer..."
+    cd /mnt/vbox
+    ./VBoxLinuxAdditions.run --nox11
+    
+    echo "Unmounting ISO..."
+    cd /
+    umount /mnt/vbox
+    rmdir /mnt/vbox
+}
+
+# Check if ISO was provided
+if [ -n "$GUEST_ADDITIONS_ISO" ] && [ -f "$GUEST_ADDITIONS_ISO" ]; then
+    echo "Using provided ISO: $GUEST_ADDITIONS_ISO"
+    install_from_iso "$GUEST_ADDITIONS_ISO"
+elif [ -f "/usr/share/virtualbox/VBoxGuestAdditions.iso" ]; then
+    # Use pre-installed ISO if available
+    echo "Found VirtualBox Guest Additions ISO in /usr/share/virtualbox/"
+    install_from_iso "/usr/share/virtualbox/VBoxGuestAdditions.iso"
+elif [ -f "/media/cdrom/VBoxLinuxAdditions.run" ]; then
+    # ISO might be already mounted
+    echo "Found VirtualBox Guest Additions mounted at /media/cdrom"
+    cd /media/cdrom
+    ./VBoxLinuxAdditions.run --nox11
+else
+    # If the user has inserted the CD via the VirtualBox menu, try to mount it
+    if [ "$MOUNT_CD" = "true" ]; then
+        echo "Attempting to mount the Guest Additions CD..."
+        
+        # Try to identify the CD device
+        CDROM_DEVICE=""
+        
+        # Check common CD device names
+        for dev in /dev/cdrom /dev/sr0 /dev/sr1 /dev/dvd /dev/dvdrw; do
+            if [ -b "$dev" ]; then
+                CDROM_DEVICE="$dev"
+                echo "Found CD device: $CDROM_DEVICE"
+                break
+            fi
+        done
+        
+        if [ -z "$CDROM_DEVICE" ]; then
+            echo "No CD device found. Trying to find it in /dev..."
+            # Try to find CD device by looking at block devices
+            for dev in $(ls -1 /dev/sr* /dev/cd* 2>/dev/null); do
+                if [ -b "$dev" ]; then
+                    CDROM_DEVICE="$dev"
+                    echo "Found CD device: $CDROM_DEVICE"
+                    break
+                fi
+            done
+        fi
+        
+        if [ -z "$CDROM_DEVICE" ]; then
+            echo "No CD device found. Trying with 'lsblk'..."
+            if command -v lsblk >/dev/null; then
+                CD_DEV=$(lsblk -o NAME,TYPE | grep rom | awk '{print $1}' | head -1)
+                if [ ! -z "$CD_DEV" ]; then
+                    CDROM_DEVICE="/dev/$CD_DEV"
+                    echo "Found CD device: $CDROM_DEVICE"
+                fi
+            fi
+        fi
+        
+        if [ -z "$CDROM_DEVICE" ]; then
+            echo "WARNING: Could not find CD device. Will try to use mounted media if available."
+        else
+            # Create mount point
+            if [ ! -d "/mnt/vbox_cdrom" ]; then
+                mkdir -p /mnt/vbox_cdrom
+            fi
+            
+            # Mount the CD (don't fail if it's already mounted elsewhere)
+            echo "Mounting $CDROM_DEVICE to /mnt/vbox_cdrom..."
+            mount -o ro "$CDROM_DEVICE" /mnt/vbox_cdrom 2>/dev/null || true
+            
+            # Check if it's mounted and has the expected file
+            if [ -f "/mnt/vbox_cdrom/VBoxLinuxAdditions.run" ]; then
+                echo "Guest Additions CD mounted successfully."
+                cd /mnt/vbox_cdrom
+                ./VBoxLinuxAdditions.run --nox11
+                CD_MOUNTED=true
+                
+                # Go back and unmount
+                cd /
+                umount /mnt/vbox_cdrom 2>/dev/null || true
+            else
+                echo "CD mounted, but VBoxLinuxAdditions.run not found."
+                # Try to unmount if the mount failed or had wrong content
+                umount /mnt/vbox_cdrom 2>/dev/null || true
+            fi
+        fi
+    fi
+    
+    # If mount attempt wasn't successful or wasn't tried, check for already mounted media
+    if [ "$CD_MOUNTED" != "true" ]; then
+        echo "Checking for already mounted Guest Additions CD..."
+    
+        # Check common mount locations
+        COMMON_MOUNTS=(
+            "/media/cdrom"
+            "/media/cdrom0"
+            "/media/VBox_GAs"
+            "/media/$(whoami)/VBox_GAs"
+            "/media/$(whoami)/VBOXADDITIONS"
+            "/mnt/cdrom"
+            "/run/media/$(whoami)/VBOXADDITIONS"
+        )
+        
+        for MOUNT in "${COMMON_MOUNTS[@]}"; do
+            if [ -d "$MOUNT" ] && [ -f "$MOUNT/VBoxLinuxAdditions.run" ]; then
+                echo "Found Guest Additions at $MOUNT"
+                echo "Installing from this location..."
+                cd "$MOUNT"
+                ./VBoxLinuxAdditions.run --nox11
+                CD_FOUND=true
+                break
+            fi
+        done
+        
+        if [ "$CD_FOUND" != "true" ]; then
+            if [ "$MOUNT_CD" = "true" ]; then
+                echo "ERROR: Guest Additions CD was not found despite insertion attempt."
+                echo ""
+                echo "This could be due to:"
+                echo "  1. The CD was not inserted via VirtualBox menu"
+                echo "  2. Auto-mount is disabled in the guest OS"
+                echo "  3. The CD device could not be identified"
+                echo ""
+                echo "If you'd like to try again with manual mounting:"
+                echo "  sudo mkdir -p /mnt/cdrom"
+                echo "  sudo mount /dev/cdrom /mnt/cdrom"
+                echo "  cd /mnt/cdrom"
+                echo "  sudo ./VBoxLinuxAdditions.run"
+                echo ""
+                exit 1
+            else
+                echo "Guest Additions CD not found in common mount points."
+                echo ""
+                echo "If you have already inserted the Guest Additions CD, try mounting it manually:"
+                echo "  mount /dev/cdrom /mnt/cdrom"
+                echo "  cd /mnt/cdrom"
+                echo "  ./VBoxLinuxAdditions.run"
+                echo ""
+                echo "Alternatively, you can specify a version to download and install:"
+                echo "  yamc -h hostname -u root guestadd 7.0.14"
+                echo ""
+                echo "Installation aborted. Please insert the Guest Additions CD and try again."
+                exit 1
+            fi
+        fi
+    fi
+    
+    # Return to original directory
+    cd /
+fi
+
+# Verify installation
+echo "Verifying VirtualBox Guest Additions installation..."
+if lsmod | grep -q vboxguest; then
+    echo "VirtualBox Guest Additions kernel modules are loaded."
+    echo "Installation completed successfully."
+else
+    echo "WARNING: VirtualBox Guest Additions kernel modules are not loaded."
+    echo "The installation might have failed or a reboot may be required."
+    echo "Please reboot the system with: 'shutdown -r now'"
+fi
+
+# Create a file to indicate successful installation
+touch /etc/vbox-guest-additions-installed
+
+echo "===== VirtualBox Guest Additions Installation Complete ====="
+echo "A system reboot is recommended to activate all features."
+echo "You can reboot with: 'shutdown -r now'"
+exit 0

@@ -1,0 +1,94 @@
+#!/bin/bash
+# lux/setup - Configure VM for development under VirtualBox
+#
+# This script configures a Linux VM running under VirtualBox on a Mac,
+# setting up shared folders, network configuration, and other utilities.
+#
+# Usage: yamc -h hostname -u root lux [username]
+
+set -e  # Exit on any error
+
+echo "===== Configuring VirtualBox Linux VM ====="
+
+# Get username from parameter or environment variable
+USERNAME="${1:-${LUX_USERNAME:-$(whoami)}}"
+echo "Using username: $USERNAME"
+
+# Get IP and network information
+NETWORK="$(ip -4 addr show | grep 192.168 | awk '{print $2}' | cut -d'/' -f1 | cut -d'.' -f1-3 | head -n 1)"
+ADDRESS="$(ip -4 addr show | grep 192.168 | awk '{print $2}' | cut -d'/' -f1)"
+
+echo "Network: $NETWORK"
+echo "Address: $ADDRESS"
+
+# Create share directory in user's home
+if [ ! -d "/home/$USERNAME/share" ]; then
+    echo "Creating share directory in /home/$USERNAME"
+    mkdir -p "/home/$USERNAME/share"
+    chown "$USERNAME:$USERNAME" "/home/$USERNAME/share"
+    echo "Share directory created successfully."
+else
+    echo "Share directory already exists."
+fi
+
+# Create systems directory in root's home
+if [ ! -d /root/systems ]; then
+    echo "Creating systems directory in /root"
+    mkdir -p /root/systems
+    echo "Systems directory created successfully."
+else
+    echo "Systems directory already exists."
+fi
+
+# Update /etc/hosts with Mac host
+if ! grep -q "$NETWORK" /etc/hosts; then
+    echo "Adding Mac host to /etc/hosts"
+    echo >> /etc/hosts "$NETWORK.1	mac"
+    echo >> /etc/hosts "$ADDRESS	$(hostname -s) $(hostname)"
+    echo "Hosts file updated successfully."
+else
+    echo "Hosts file already has Mac host entry."
+fi
+
+# Update fstab with VirtualBox shared folder mounts
+if ! grep -q 'vboxsf' /etc/fstab; then
+    echo "Adding mounts to /etc/fstab"
+    
+    # Add VirtualBox shared folder mounts
+    echo >> /etc/fstab "share	/home/$USERNAME/share	vboxsf	uid=1000,gid=1000,rw,comment=systemd.automount	0 0"
+    echo >> /etc/fstab "systems	/root/systems	vboxsf	defaults,rw,comment=systemd.automount	0 0"
+    
+    # Add commented NFS mounts as alternative
+    echo >> /etc/fstab "#mac:/Users/$USERNAME/share	/home/$USERNAME/share	nfs	defaults,rw,comment=systemd.automount	0 0"
+    echo >> /etc/fstab "#mac:/Users/$USERNAME/systems	/root/systems	nfs	defaults,rw,comment=systemd.automount	0 0"
+    
+    echo "Mounts added to fstab successfully."
+else
+    echo "Mounts already exist in fstab."
+fi
+
+# Mount VirtualBox shared folders
+if [ ! -d /root/systems/setup ]; then
+    echo "Mounting VirtualBox shared folders..."
+    mount -a -t vboxsf || echo "Warning: Could not mount VirtualBox shared folders. Make sure they are configured in VirtualBox."
+fi
+
+# Configure firewall
+echo "Configuring firewall..."
+if command -v systemctl > /dev/null; then
+    if systemctl status firewalld &> /dev/null; then
+        echo "Disabling firewalld for development environment..."
+        systemctl stop firewalld
+        systemctl mask firewalld 2>/dev/null
+        echo "Firewall disabled successfully."
+    else
+        echo "Firewalld is not running or not installed."
+    fi
+else
+    echo "Systemd not detected. Skipping firewall configuration."
+fi
+
+echo "===== VirtualBox VM Configuration Complete ====="
+echo "The VM has been configured to work with Mac host systems."
+echo "If needed, log out and log back in to apply all changes."
+exit 0

@@ -1,0 +1,18 @@
+#!/bin/bash
+# lux/setup.loc - Prepare parameters for VM configuration
+
+echo "Preparing VM configuration parameters..."
+
+# Check if a username was specified as an argument
+if [ $# -ge 1 ]; then
+  echo "Using specified username: $1"
+  echo "LUX_USERNAME=\"$1\"" >> "$MOD_TMP/env"
+else
+  # Try to determine username from the local environment
+  LOCAL_USER="$(whoami)"
+  
+  echo "No username specified. Using local username: $LOCAL_USER"
+  echo "LUX_USERNAME=\"$LOCAL_USER\"" >> "$MOD_TMP/env"
+fi
+
+echo "Local setup completed successfully."

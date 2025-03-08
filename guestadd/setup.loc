@@ -1,0 +1,41 @@
+#!/bin/bash
+# guestadd/setup.loc - Prepare Guest Additions installation parameters
+
+echo "Preparing VirtualBox Guest Additions installation..."
+
+# Check if an ISO path was provided
+if [ $# -ge 1 ] && [ -f "$1" ]; then
+  echo "Using specified ISO file: $1"
+  
+  # Copy the ISO file to the temporary directory
+  echo "Copying ISO to temporary directory..."
+  cp "$1" "$MOD_TMP/VBoxGuestAdditions.iso"
+  
+  # Pass the location of the ISO to the remote script
+  echo "GUEST_ADDITIONS_ISO=\"/tmp/yamc-guest-additions.iso\"" >> "$MOD_TMP/env"
+  
+  # Remember to copy the ISO to a known location on the target system
+  echo "ISO_COPY=true" >> "$MOD_TMP/env"
+elif [ $# -ge 1 ]; then
+  # A version number was specified
+  echo "Using specified Guest Additions version: $1"
+  echo "VBOX_VERSION=\"$1\"" >> "$MOD_TMP/env"
+else
+  # No specific ISO or version - prompt for Guest Additions CD
+  echo "======================================================================================"
+  echo "ACTION REQUIRED: Please insert the Guest Additions CD"
+  echo ""
+  echo "   In the VirtualBox menu of this VM, select:"
+  echo "   'Devices' -> 'Insert Guest Additions CD image...'"
+  echo ""
+  echo "   This is the most reliable method to install Guest Additions."
+  echo "======================================================================================"
+  echo ""
+  echo "After inserting the Guest Additions CD, press Enter to continue..."
+  read
+  
+  echo "Proceeding with installation... The script will attempt to mount and use the CD."
+  echo "MOUNT_CD=true" >> "$MOD_TMP/env"
+fi
+
+echo "Local setup completed."

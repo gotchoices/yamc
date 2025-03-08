@@ -1,0 +1,61 @@
++----------------+----------------+----------------+----------------+----------------+----------------+----------------+
+|~:      ~       |1:      1       |2:      2       |3:      3       |4:      4       |5:      5       |6:      6       |
+|C: -            |C: -            |C: char insert  |C: -            |C: -            |C: -            |C: (jump prefix)|
+|[: -            |[: -            |[: meta insert  |[: -            |[: -            |[: -            |[: jump to shell|
+|P: -            |P: -            |P:              |P: -            |P: -            |P: -            |P: run program  |
+|L: -            |L: -            |L:              |L: -            |L: -            |L: -            |L:              |
+|^: -            |^: -            |^:              |^: -            |^: -            |^: -            |^: jump to line |
++-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+
+        |TB:     tab     |q:      q       |w:      w       |e:      e       |r:      r       |t:      t       |
+        |C: (tab = ^I)   |C: (xon)        |C: end of file  |C: delete line  |C: end of line  |C: end of screen|
+        |[: -            |[: -            |[:              |[: del line (dn)|[: end of line  |[: screen down  |
+        |P: -            |P: -            |P: save as (to) |P: file menu    |P: next file    |P: next window  |
+        |L: -            |L: -            |L: del to eof   |L: delete line  |L: del to eol   |L: del to eos   |
+        |^: -            |^: -            |^:              |^:              |^:              |^:              |
+        +--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+--+
+           |CONTROL:        |q:      a       |s:      s       |d:      d       |f:      f       |g:      g       |
+           |C:              |C: repeat count |C: (xoff)       |C: move down    |C: move forward |C: front delete |
+           |[:              |[: center line  |[: -            |[: scroll down  |[: pan right    |[: next help win|
+           |P:              |P:              |P: -            |P: grow window  |P:              |P: open a file  |
+           |L:              |L: app to delete|L: -            |L: del to down  |L: del forward  |L: del forward  |
+           |^:              |^:              |^: -            |^:              |^:              |^:              |
+           +-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+
+                   |SHIFT:          |z:      z       |x:      x       |c:      c       |v:      v       |b:      b       |
+            Normal |C: -            |C: start block  |C: find next    |C: abort cmd    |C: next word    |C: paste buffer |
+     Function (^[) |[: -            |[: end block    |[: find first   |[:              |[: next field(|)|[: undo         |
+         File (^P) |P: -            |P: copy block   |P:              |P:              |P: spell nx word|P:              |
+       Delete (^L) |L: -            |L: delete block |L:              |L:              |L: del next word|L: redo         |
+         Jump (^^) |^: -            |^: jump to block|^:              |^: jump to col  |^:              |^: jump to byte |
+                   +----------------+----------------+----------------+----------------+----------------+----------------+
+
+
+
+        +----------------+----------------+----------------+----------------+----------------+----------------+----------------+
+        |7:      7       |8:      8       |9:      9       |0:      0       |-:      -       |=:      =       |Backspace:      |
+        |C: -            |C: -            |C: -            |C: -            |C: explode (_)  |C: -            |C:              |
+        |[: -            |[: -            |[: -            |[: -            |[: repaint (_)  |[: -            |[:              |
+        |P: -            |P: -            |P: -            |P: -            |P: spell chk (_)|P: -            |P:              |
+        |L: -            |L: -            |L: -            |L: -            |L: -            |L: -            |L:              |
+        |^: -            |^: -            |^: -            |^: -            |^: -            |^: -            |^:              |
++-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+
+|y:      y       |u:      u       |i:      i       |o:      o       |p:      p       |[:      [       |]:      ]       |\:      \       |
+|C: top of screen|C: beg of line  |C: tab          |C: beg of file  |C: (file prefix)|C: (func prefix)|C: ex last macro|C: (reserved)   |
+|[: screen up    |[: beg of line  |[: options      |[:              |[:              |[:              |[: exec macro   |[:              |
+|P: prev window  |P: prev file    |P: insert file  |P: save & quit  |P: save file    |P: record macro |P: end macro    |P:              |
+|L: del to tos   |L: del to bol   |L:              |L: del to eof   |L:              |L:              |L:              |L:              |
+|^:              |^:              |^:              |^:              |^:              |^:              |^:              |^:              |
++--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+--+-------------+
+   |h:      h       |j:      j       |k:      k       |l:      l       |;:      ;       |':      '       |Return:         |
+   |C: back delete  |C: move back    |C: move up      |C: (del prefix) |C: -            |C: -            |C: (return = ^M)|
+   |[: prev help win|[: pan left     |[: scroll up    |[: copy block   |[: -            |[: -            |[:              |
+   |P: help menu    |P: filter block |P: shrink window|P: split window |P: -            |P: -            |P:              |
+   |L: delete back  |L: delete back  |L: del to up    |L:              |L: -            |L: -            |L:              |
+   |^:              |^:              |^:              |^:              |^: -            |^: -            |^:              |
+   +-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+-------+--------+
+           |n:      n       |m:      m       |,:      ,       |.:      .       |/:      /       |Shift:          |
+           |C: prev word    |C:              |C: -            |C: -            |C: -            |C: -            |
+           |[: prev field(|)|[: rec macro 0  |[: -            |[: -            |[: -            |[: -            |
+           |P: spell pr word|P: calculator   |P: -            |P: -            |P: -            |P: -            |
+           |L: del prev word|L:              |L: -            |L: -            |L: -            |L: -            |
+           |^:              |^: jump to line |^: -            |^: -            |^: -            |^: -            |
+           +----------------+----------------+----------------+----------------+----------------+----------------+
