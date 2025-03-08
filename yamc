@@ -396,19 +396,57 @@ run_module() {
   
   # Setup base paths
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  MOD_DIR="$SCRIPT_DIR/$MODULE"
+  
+  # Resolve installation directory
+  if [ -L "$SCRIPT_DIR/yamc" ]; then
+    # We're running from a symlink in bin directory
+    INSTALL_DIR="$(readlink "$SCRIPT_DIR/yamc" | xargs dirname)"
+  else
+    # We're running directly from the script location
+    INSTALL_DIR="$SCRIPT_DIR"
+  fi
+  
+  # Define module search paths
+  MODULE_PATHS=(
+    # First, check if MODULE is an absolute path to a directory
+    "$MODULE"
+    # Next, check relative to current directory
+    "$(pwd)/$MODULE"
+    # Check in user's personal modules
+    "$HOME/.yamc/modules/$MODULE"
+    # Check in system-wide custom modules
+    "/etc/yamc/modules/$MODULE"
+    # Finally, check in the installation directory
+    "$INSTALL_DIR/modules/$MODULE"
+  )
+  
+  # Find the module directory
+  MOD_DIR=""
+  for path in "${MODULE_PATHS[@]}"; do
+    if [ -d "$path" ] && [ -f "$path/setup" ]; then
+      MOD_DIR="$path"
+      break
+    fi
+  done
+  
+  # Set up trap to ensure cleanup on exit
+  trap cleanup EXIT INT TERM
+  
+  # Check if module exists
+  if [ -z "$MOD_DIR" ] || [ ! -d "$MOD_DIR" ]; then
+    log ERROR "Module '$MODULE' not found in any of the search paths"
+    log ERROR "Searched in:"
+    log ERROR "  - $MODULE (absolute path)"
+    log ERROR "  - $(pwd)/$MODULE (current directory)"
+    log ERROR "  - $HOME/.yamc/modules/$MODULE (user modules)"
+    log ERROR "  - /etc/yamc/modules/$MODULE (system modules)"
+    log ERROR "  - $INSTALL_DIR/modules/$MODULE (installed modules)"
+    exit 1
+  fi
+  
   # Create the temp directory as a subdirectory of the module directory
   MOD_TMP="$MOD_DIR/tmp-$$"
   mkdir -p "$MOD_TMP"
-
-  # Set up trap to ensure cleanup on exit
-  trap cleanup EXIT INT TERM
-
-  # Check if module exists
-  if [ ! -d "$MOD_DIR" ]; then
-    log ERROR "Module '$MODULE' not found in $SCRIPT_DIR"
-    exit 1
-  fi
 
   # Check if subfunction script exists
   if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
