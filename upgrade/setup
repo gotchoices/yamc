@@ -1,0 +1,71 @@
+#!/bin/bash
+# upgrade/setup - Upgrade all packages on an Ubuntu system
+#
+# This script performs a full package upgrade on Ubuntu/Debian systems.
+# It can do either a safe upgrade or a full distribution upgrade.
+#
+# Usage: yamc -h hostname -u root upgrade [dist-upgrade]
+
+set -e  # Exit on any error
+
+echo "===== System Package Upgrade ====="
+
+# Check if we're on a Debian-based system
+if ! command -v apt-get &> /dev/null; then
+    echo "ERROR: This module only works on Debian-based systems (Ubuntu, Debian, etc.)"
+    echo "Package manager apt-get not found."
+    exit 1
+fi
+
+# Determine if we're doing a distribution upgrade
+DIST_UPGRADE=false
+if [ "$1" = "dist-upgrade" ] || [ "$UPGRADE_MODE" = "dist-upgrade" ]; then
+    DIST_UPGRADE=true
+    echo "Performing DISTRIBUTION UPGRADE (dist-upgrade)"
+else
+    echo "Performing regular upgrade (safe-upgrade)"
+fi
+
+# Update package lists
+echo "Updating package lists..."
+apt-get update
+
+# Check if there are any upgrades available
+echo "Checking for available upgrades..."
+UPGRADE_COUNT=$(apt list --upgradable 2>/dev/null | grep -v "Listing..." | wc -l)
+UPGRADE_COUNT=$(echo "$UPGRADE_COUNT" | tr -d ' ')
+
+if [ "$UPGRADE_COUNT" -eq 0 ]; then
+    echo "No packages need upgrading. System is up to date."
+    exit 0
+fi
+
+echo "$UPGRADE_COUNT package(s) can be upgraded."
+
+# Perform the upgrade
+echo "Performing package upgrade..."
+if [ "$DIST_UPGRADE" = true ]; then
+    echo "This will perform a full distribution upgrade, which might install or remove packages."
+    echo "This mode is required for kernel upgrades and when dependencies change."
+    apt-get dist-upgrade -y
+else
+    echo "This will perform a safe upgrade that won't remove any packages."
+    apt-get upgrade -y
+fi
+
+# Clean up
+echo "Cleaning up..."
+apt-get autoremove -y
+apt-get autoclean
+
+# Check if a reboot is needed
+if [ -f /var/run/reboot-required ]; then
+    echo ""
+    echo "WARNING: A system reboot is required to complete the upgrade."
+    echo "Please reboot the system when convenient."
+    echo ""
+fi
+
+echo "===== System Upgrade Complete ====="
+echo "Packages have been successfully updated."
+exit 0

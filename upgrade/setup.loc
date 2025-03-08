@@ -1,0 +1,15 @@
+#!/bin/bash
+# upgrade/setup.loc - Prepare upgrade parameters
+
+echo "Preparing system upgrade parameters..."
+
+# Check if dist-upgrade was specified
+if [ $# -ge 1 ] && [ "$1" = "dist-upgrade" ]; then
+  echo "Distribution upgrade mode selected."
+  echo "UPGRADE_MODE=\"dist-upgrade\"" >> "$MOD_TMP/env"
+else
+  echo "Regular upgrade mode selected."
+  echo "UPGRADE_MODE=\"upgrade\"" >> "$MOD_TMP/env"
+fi
+
+echo "Local setup completed successfully."
