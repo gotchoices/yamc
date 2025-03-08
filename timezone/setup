@@ -1,0 +1,61 @@
+#!/bin/bash
+# timezone/setup - Set timezone on remote system
+#
+# This script sets the system timezone. It can be called with
+# a specific timezone as an argument, or it will default to
+# using the local machine's timezone.
+#
+# Usage: yamc -h hostname -u root timezone [timezone_name]
+# Example: yamc -h server -u root timezone America/New_York
+
+set -e  # Exit on any error
+
+echo "===== Configuring System Timezone ====="
+
+# Validate that we have a timezone to set
+if [ -z "$ZONE" ]; then
+  echo "ERROR: No timezone specified. This should not happen if setup.loc ran correctly."
+  exit 1
+fi
+
+echo "Requested timezone: $ZONE"
+
+# Check if timedatectl is available (systemd systems)
+if ! command -v timedatectl &> /dev/null; then
+  echo "ERROR: timedatectl not found. This system may not use systemd."
+  echo "Manual timezone configuration required."
+  exit 1
+fi
+
+# Get current timezone
+CURRENT_TIMEZONE=$(timedatectl | grep "Time zone" | awk '{print $3}')
+echo "Current timezone: $CURRENT_TIMEZONE"
+
+# Check if it's already set correctly (idempotency)
+if [ "$CURRENT_TIMEZONE" = "$ZONE" ]; then
+  echo "Timezone is already correctly set to $ZONE. No changes needed."
+else
+  echo "Setting timezone to: $ZONE"
+  
+  # Verify the timezone is valid
+  if ! timedatectl list-timezones | grep -q "^$ZONE$"; then
+    echo "WARNING: '$ZONE' doesn't appear to be a valid timezone."
+    echo "Available timezones can be found with: timedatectl list-timezones"
+    echo "Attempting to set it anyway..."
+  fi
+  
+  # Set the timezone
+  if timedatectl set-timezone "$ZONE"; then
+    echo "Timezone successfully set to $ZONE"
+    
+    # Verify the change
+    NEW_TIMEZONE=$(timedatectl | grep "Time zone" | awk '{print $3}')
+    echo "Verified new timezone: $NEW_TIMEZONE"
+  else
+    echo "ERROR: Failed to set timezone to $ZONE"
+    exit 1
+  fi
+fi
+
+echo "===== Timezone Configuration Complete ====="
+exit 0

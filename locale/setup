@@ -1,0 +1,114 @@
+#!/bin/bash
+# locale/setup - Configure system locale
+#
+# This script configures the system locale. It can be called with
+# a specific locale as an argument, or it will default to en_US.UTF-8.
+#
+# Usage: yamc -h hostname -u root locale [locale_name]
+# Example: yamc -h server -u root locale fr_FR.UTF-8
+
+set -e  # Exit on any error
+
+echo "===== Configuring System Locale ====="
+
+# Get the locale from environment variable (set by setup.loc)
+LOCALE_NAME="${TARGET_LOCALE:-en_US.UTF-8}"
+echo "Setting system locale to: $LOCALE_NAME"
+
+# Extract the language part (without encoding)
+LOCALE_LANG="${LOCALE_NAME%%.*}"
+# Extract the encoding part (if any)
+LOCALE_ENCODING="${LOCALE_NAME#*.}"
+if [ "$LOCALE_ENCODING" = "$LOCALE_NAME" ]; then
+    # No encoding specified, default to UTF-8
+    LOCALE_ENCODING="UTF-8"
+    FULL_LOCALE="$LOCALE_LANG.UTF-8"
+else
+    FULL_LOCALE="$LOCALE_NAME"
+fi
+
+# Define the locale entry for locale.gen
+LOCALE_ENTRY="$FULL_LOCALE $LOCALE_ENCODING"
+
+# Check if locale-gen is available
+if ! command -v locale-gen &> /dev/null; then
+    echo "WARNING: locale-gen command not found. This system may use a different locale mechanism."
+    echo "Proceeding with /etc/default/locale configuration only."
+else
+    LOCALE_FILE="/etc/locale.gen"
+    if [ -f "$LOCALE_FILE" ]; then
+        # Check if the locale exists and is commented
+        if grep -q "^# $LOCALE_ENTRY" "$LOCALE_FILE"; then
+            echo "Uncommenting $LOCALE_ENTRY in $LOCALE_FILE..."
+            sed -i "s/^# $LOCALE_ENTRY/$LOCALE_ENTRY/" "$LOCALE_FILE"
+            LOCALE_CHANGED=true
+        elif grep -q "^$LOCALE_ENTRY" "$LOCALE_FILE"; then
+            echo "Locale $LOCALE_ENTRY is already enabled in $LOCALE_FILE."
+        else
+            echo "Locale $LOCALE_ENTRY not found in $LOCALE_FILE."
+            echo "Adding $LOCALE_ENTRY to $LOCALE_FILE..."
+            echo "$LOCALE_ENTRY" >> "$LOCALE_FILE"
+            LOCALE_CHANGED=true
+        fi
+        
+        # Generate locales if changes were made
+        if [ "$LOCALE_CHANGED" = "true" ]; then
+            echo "Generating locales..."
+            locale-gen
+        fi
+    else
+        echo "WARNING: $LOCALE_FILE not found. Skipping locale-gen configuration."
+    fi
+fi
+
+# Check if the current locale is already set correctly
+CURRENT_LOCALE=$(locale | grep LANG= | cut -d= -f2)
+CHANGES_MADE=false
+
+if [ "$CURRENT_LOCALE" = "$FULL_LOCALE" ]; then
+    echo "System locale is already set to $FULL_LOCALE."
+    
+    # Check if we need to update /etc/default/locale file
+    if grep -q "LANG=$FULL_LOCALE" /etc/default/locale 2>/dev/null && 
+       grep -q "LC_ALL=$FULL_LOCALE" /etc/default/locale 2>/dev/null; then
+        echo "Locale configuration file /etc/default/locale is already correct."
+    else
+        echo "Updating /etc/default/locale file to match current settings..."
+        # Update /etc/default/locale file
+        cat > /etc/default/locale <<EOF
+LANG=$FULL_LOCALE
+LC_ALL=$FULL_LOCALE
+EOF
+        CHANGES_MADE=true
+    fi
+else
+    echo "Updating system default locale from $CURRENT_LOCALE to $FULL_LOCALE..."
+    CHANGES_MADE=true
+    
+    # Update /etc/default/locale file
+    cat > /etc/default/locale <<EOF
+LANG=$FULL_LOCALE
+LC_ALL=$FULL_LOCALE
+EOF
+    
+    # Also use update-locale if available
+    if command -v update-locale &> /dev/null; then
+        update-locale LANG="$FULL_LOCALE" LC_ALL="$FULL_LOCALE"
+    fi
+fi
+
+echo "Current locale settings:"
+if command -v localectl &> /dev/null; then
+    localectl status
+else
+    locale
+fi
+
+if [ "$CHANGES_MADE" = "true" ] || [ "$LOCALE_CHANGED" = "true" ]; then
+    echo "Locale changes have been applied. A reboot may be required for changes to take full effect."
+else
+    echo "No locale changes were necessary. System is already configured correctly."
+fi
+
+echo "===== Locale Configuration Complete ====="
+exit 0

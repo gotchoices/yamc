@@ -1,0 +1,19 @@
+#!/bin/bash
+# pref/setup.loc - Prepare user preference files locally
+
+echo "Preparing user preference files..."
+
+# Copy local inputrc file if it exists
+if [ -f "$HOME/.inputrc" ]; then
+  echo "Copying local .inputrc file..."
+  cp "$HOME/.inputrc" "$MOD_TMP/inputrc"
+  echo ".inputrc copied successfully."
+elif [ ! -z "$INPUTRC" ] && [ -f "$INPUTRC" ]; then
+  echo "Copying custom inputrc file from $INPUTRC..."
+  cp "$INPUTRC" "$MOD_TMP/inputrc"
+  echo "Custom inputrc copied successfully."
+else
+  echo "No inputrc file found. Shell command editing preferences will not be copied."
+fi
+
+echo "Local setup completed."

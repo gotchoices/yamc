@@ -1,0 +1,62 @@
+#!/bin/bash
+# pref/setup - Set up user preferences on remote system
+#
+# This script installs user preferences like .inputrc and .bash_profile
+# customizations on the remote system.
+#
+# Usage: yamc -h hostname pref
+
+set -e  # Exit on any error
+
+echo "===== Setting Up User Preferences ====="
+
+# Install inputrc if it exists
+if [ -f "$MOD_TMP/inputrc" ]; then
+  echo "Installing .inputrc file..."
+  cp "$MOD_TMP/inputrc" ~/.inputrc
+  echo "Set permissions on .inputrc..."
+  chmod 644 ~/.inputrc
+  echo ".inputrc installed successfully."
+else
+  echo "No .inputrc file provided. Skipping."
+fi
+
+# Install bash profile customizations
+BASH_PROFILE="$HOME/.bash_profile"
+BASHRC="$HOME/.bashrc"
+PROFILE_FILE="$MOD_DIR/profile"
+
+echo "Setting up shell profile customizations..."
+
+# First determine which file to use (.bash_profile or .bashrc)
+if [ -f "$BASH_PROFILE" ]; then
+  TARGET_PROFILE="$BASH_PROFILE"
+  echo "Found existing .bash_profile, will update if needed."
+elif [ -f "$BASHRC" ]; then
+  TARGET_PROFILE="$BASHRC"
+  echo "Found existing .bashrc, will update if needed."
+else
+  # Create .bash_profile if neither exists
+  TARGET_PROFILE="$BASH_PROFILE"
+  echo "No existing profile found. Creating .bash_profile."
+  touch "$TARGET_PROFILE"
+fi
+
+# Check if our customizations are already in the profile
+if grep -q "Local additions:" "$TARGET_PROFILE"; then
+  echo "Profile customizations already exist in $TARGET_PROFILE. Skipping."
+else
+  echo "Adding customizations to $TARGET_PROFILE..."
+  
+  # Add a blank line if the file doesn't end with one
+  if [ -s "$TARGET_PROFILE" ] && [ "$(tail -c 1 "$TARGET_PROFILE" | wc -l)" -eq 0 ]; then
+    echo "" >> "$TARGET_PROFILE"
+  fi
+  
+  # Append our profile customizations
+  cat "$PROFILE_FILE" >> "$TARGET_PROFILE"
+  echo "Profile customizations added successfully."
+fi
+
+echo "===== User Preferences Setup Complete ====="
+exit 0

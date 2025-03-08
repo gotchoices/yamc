@@ -1,0 +1,14 @@
+#!/bin/bash
+# timezone/setup.loc - Prepare timezone data locally
+
+# First check if a timezone was specified as an argument
+if [ $# -ge 1 ]; then
+  echo "Using timezone from command line: $1"
+  echo "ZONE=\"$1\"" >> "$MOD_TMP/env"
+else
+  # If no timezone specified, use US Mountain time (Denver) as default
+  DEFAULT_TIMEZONE="America/Denver"
+  
+  echo "No timezone specified. Using default timezone: $DEFAULT_TIMEZONE"
+  echo "ZONE=\"$DEFAULT_TIMEZONE\"" >> "$MOD_TMP/env"
+fi

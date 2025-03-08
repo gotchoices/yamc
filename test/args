@@ -1,0 +1,47 @@
+#!/bin/bash
+# Test module - Remote args test
+# This tests passing arguments to module scripts
+
+echo "===================================================================="
+echo "Test module - Remote args test running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# Display arguments received directly
+echo "Arguments received directly by remote script:"
+echo "$@"
+
+# Check if arguments were passed through environment variables
+echo "Arguments passed through environment variables:"
+echo "args_count = $args_count"
+
+if [ "$args_count" -gt 0 ]; then
+    for i in $(seq 1 $args_count); do
+        var_name="arg$i"
+        echo "  Arg $i: ${!var_name}"
+    done
+else
+    echo "  No arguments were passed"
+fi
+
+# Display content of the args file
+TEST_ARGS_FILE="$MOD_TMP/test_args.txt"
+if [ -f "$TEST_ARGS_FILE" ]; then
+    echo "Contents of args test file:"
+    echo "--------------------------------------------------------------------"
+    cat "$TEST_ARGS_FILE"
+    echo "--------------------------------------------------------------------"
+else
+    echo "ERROR: Args test file not found at $TEST_ARGS_FILE"
+fi
+
+echo "===================================================================="
+echo "Test paused. You can inspect the remote system now."
+echo "Remote temporary directory: $MOD_TMP"
+echo "Module directory mount: $MOD_DIR"
+echo
+echo "Press Enter to continue and finish the test..."
+read PAUSE_INPUT
+
+echo "===================================================================="
+echo "Args test completed successfully!"
+echo "===================================================================="

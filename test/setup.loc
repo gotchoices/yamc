@@ -1,0 +1,31 @@
+#!/bin/bash
+# Test module - Local setup
+# Creates a test file in the temporary directory
+
+echo "Test module - Local setup running..."
+
+# Create a test file with some content
+TEST_FILE="$MOD_TMP/test_file.txt"
+echo "Creating test file: $TEST_FILE"
+
+cat > "$TEST_FILE" << EOF
+This is a test file created by YAMC on $(date)
+From host: $(hostname)
+User: $(whoami)
+Target host: $tgt_host
+SSH user: $ssh_user
+
+If you can see this file, the YAMC file sharing is working correctly!
+
+Some environment variables:
+MOD_DIR = $MOD_DIR
+MOD_TMP = $MOD_TMP
+EOF
+
+echo "Test file created with $(wc -l < "$TEST_FILE") lines"
+
+# Store some data to pass to the remote script
+echo "test_timestamp=\"$(date)\"" >> "$MOD_TMP/env"
+echo "test_source=\"$(hostname)\"" >> "$MOD_TMP/env"
+
+echo "Local setup completed successfully"

@@ -1,0 +1,65 @@
+#!/bin/bash
+# Minimal test script for reverse SSHFS mounting
+
+# Configuration
+REMOTE_HOST="lux0"
+REMOTE_USER="kyle"
+LOCAL_DIR="$(pwd)"
+REMOTE_MOUNT_DIR="/tmp/yamc-test-mount"
+SFTP_SERVER="/usr/libexec/sftp-server"
+FIFO="/tmp/yamc-test-fifo-$$"
+
+#< "$FIFO" $SFTP_SERVER |
+#  ssh -f -T "$REMOTE_USER@$REMOTE_HOST" "
+#    mkdir -p $REMOTE_MOUNT_DIR && 
+#    sshfs -o slave \":$LOCAL_DIR\" \"$REMOTE_MOUNT_DIR\"
+#  " > "$FIFO"
+
+# Ensure an SSH key exists locally
+if [ ! -f "$HOME/.ssh/id_rsa" ]; then
+    echo "Error: No SSH key found at $HOME/.ssh/id_rsa."
+    echo "Generate one with: ssh-keygen -t rsa -b 4096 -f $HOME/.ssh/id_rsa -N \"\""
+    exit 1
+fi
+
+# Check if SSH key is installed on the remote machine
+if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" true 2>/dev/null; then
+    echo "SSH key not found on remote host. Installing..."
+    
+    # Install the SSH key on the remote machine
+    ssh-copy-id "$REMOTE_USER@$REMOTE_HOST"
+    
+    # Re-check if key authentication works
+    if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$REMOTE_USER@$REMOTE_HOST" true 2>/dev/null; then
+        echo "Error: SSH key authentication failed even after installation."
+        exit 1
+    fi
+fi
+
+# Create named pipe
+mkfifo -m600 "$FIFO"
+
+# Trap function to clean up on exit
+cleanup() {
+    echo "Cleaning up..."
+    ssh "$REMOTE_USER@$REMOTE_HOST" "
+        fusermount -u \"$REMOTE_MOUNT_DIR\" 2>/dev/null || true
+        pkill -f 'sshfs -o slave' || true
+    " 2>/dev/null
+    rm -f "$FIFO"
+    exit 0
+}
+trap cleanup EXIT INT TERM
+
+# Start SSHFS in the background
+(
+    < "$FIFO" $SFTP_SERVER | \
+#    ssh -T "$REMOTE_USER@$REMOTE_HOST" "
+    ssh -T -o ServerAliveInterval=10 -o ServerAliveCountMax=2 "$REMOTE_USER@$REMOTE_HOST" "
+        mkdir -p \"$REMOTE_MOUNT_DIR\"
+        sshfs -o slave \":$LOCAL_DIR\" \"$REMOTE_MOUNT_DIR\"
+    " > "$FIFO"
+) &   # Wait for user input before exiting
+
+echo "Mount initiated. Press Enter to unmount and cleanup."
+read

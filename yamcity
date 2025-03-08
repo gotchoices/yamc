@@ -1,0 +1,183 @@
+#!/bin/bash
+# YAMCITY - YAMC Automation Wrapper
+# Runs a sequence of YAMC commands from a profile file
+# Automatically applies hostname to all commands
+
+set -e
+
+# Configuration
+YAMC_BIN="$(dirname "$0")/yamc"
+LOG_DIR="./yamc-logs/$(date +%Y%m%d_%H%M%S)"
+SUMMARY_LOG="$LOG_DIR/summary.log"
+
+# Function to print to console and log
+log() {
+  echo "$@" | tee -a "$SUMMARY_LOG"
+}
+
+# Display usage
+show_usage() {
+  cat <<EOF
+YAMCITY - YAMC Automation Wrapper
+
+Usage: yamcity -h hostname [-u username] profile_file [continue_on_error]
+
+Options:
+  -h hostname       Required. Target remote hostname to use for all commands
+  -u username       Optional. Default SSH username (can be overridden in profile)
+  -v                Optional. Enable verbose output
+
+Arguments:
+  profile_file      Required. Path to the machine profile file
+  continue_on_error Optional. Set to 'true' to continue after errors (default: false)
+
+Profile File Format:
+  # Comments start with a hash
+  # Each non-comment line is appended to 'yamc -h hostname'
+  
+  # Examples:
+  sshroot
+  -u root timezone America/Los_Angeles
+  -u root locale en_US.UTF-8
+  pref
+EOF
+  exit 1
+}
+
+# Parse command line options
+HOST=""
+DEFAULT_USER=""
+VERBOSE=false
+
+while getopts "h:u:v" opt; do
+  case $opt in
+    h) HOST="$OPTARG" ;;
+    u) DEFAULT_USER="$OPTARG" ;;
+    v) VERBOSE=true ;;
+    *) show_usage ;;
+  esac
+done
+
+# Shift past the options
+shift $((OPTIND-1))
+
+# Check required parameters
+if [ -z "$HOST" ]; then
+  echo "Error: Remote hostname (-h) is required"
+  show_usage
+fi
+
+if [ $# -lt 1 ]; then
+  echo "Error: Profile file is required"
+  show_usage
+fi
+
+PROFILE_FILE="$1"
+CONTINUE_ON_ERROR="${2:-false}"
+
+# Validate profile file
+if [ ! -f "$PROFILE_FILE" ]; then
+  echo "Error: Profile file '$PROFILE_FILE' not found"
+  exit 1
+fi
+
+# Create log directory
+mkdir -p "$LOG_DIR"
+echo "YAMCITY Automation Started: $(date)" > "$SUMMARY_LOG"
+echo "Host: $HOST" >> "$SUMMARY_LOG"
+if [ ! -z "$DEFAULT_USER" ]; then
+  echo "Default user: $DEFAULT_USER" >> "$SUMMARY_LOG"
+fi
+echo "Profile: $PROFILE_FILE" >> "$SUMMARY_LOG"
+echo "Continue on error: $CONTINUE_ON_ERROR" >> "$SUMMARY_LOG"
+echo "Verbose: $VERBOSE" >> "$SUMMARY_LOG"
+echo "--------------------------------------------------" >> "$SUMMARY_LOG"
+
+# Process the profile file
+line_number=0
+failed_commands=()
+successful_commands=0
+total_commands=0
+
+# Count non-comment, non-empty lines
+total_commands=$(grep -v '^\s*#' "$PROFILE_FILE" | grep -v '^\s*$' | wc -l)
+total_commands=$(echo "$total_commands" | tr -d ' ')  # Remove leading spaces
+
+log "Found $total_commands commands to execute"
+log "--------------------------------------------------"
+
+while IFS= read -r line || [ -n "$line" ]; do
+  line_number=$((line_number + 1))
+  
+  # Skip empty lines and comments
+  if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+    continue
+  fi
+  
+  # Create command-specific log files
+  cmd_log="$LOG_DIR/cmd_${line_number}.log"
+  cmd_err="$LOG_DIR/cmd_${line_number}.err"
+  
+  # Construct the full command with hostname
+  if [[ "$line" == -* ]]; then
+    # Line already starts with options, just add hostname
+    full_command="-h $HOST $line"
+  else
+    # Line starts with module name, add hostname and possibly username
+    if [ ! -z "$DEFAULT_USER" ]; then
+      full_command="-h $HOST -u $DEFAULT_USER $line"
+    else
+      full_command="-h $HOST $line"
+    fi
+  fi
+  
+  # Add verbose flag if enabled
+  if [ "$VERBOSE" = true ]; then
+    full_command="-v $full_command"
+  fi
+  
+  log "Executing command [$line_number/$total_commands]: $YAMC_BIN $full_command"
+  
+  # Execute the YAMC command
+  set +e  # Temporarily disable exit on error
+  $YAMC_BIN $full_command > >(tee "$cmd_log") 2> >(tee "$cmd_err" >&2)
+  exit_code=$?
+  set -e  # Re-enable exit on error
+  
+  if [ $exit_code -ne 0 ]; then
+    log "ERROR: Command failed with exit code $exit_code"
+    failed_commands+=("Line $line_number: '$line'")
+    
+    # Stop on error if continue_on_error is not true
+    if [ "$CONTINUE_ON_ERROR" != "true" ]; then
+      log "Stopping execution due to error"
+      break
+    fi
+  else
+    log "Command completed successfully"
+    successful_commands=$((successful_commands + 1))
+  fi
+  
+  log "--------------------------------------------------"
+done < "$PROFILE_FILE"
+
+# Print summary
+log "YAMCITY Automation Completed: $(date)"
+log "Commands executed: $successful_commands/$total_commands"
+
+if [ ${#failed_commands[@]} -gt 0 ]; then
+  log "FAILED COMMANDS (${#failed_commands[@]}):"
+  for cmd in "${failed_commands[@]}"; do
+    log "  - $cmd"
+  done
+  log "Logs saved to: $LOG_DIR"
+  exit 1
+else
+  if [ "$successful_commands" -eq "$total_commands" ]; then
+    log "All commands completed successfully"
+  else
+    log "Some commands were not executed due to early termination"
+  fi
+  log "Logs saved to: $LOG_DIR"
+  exit 0
+fi

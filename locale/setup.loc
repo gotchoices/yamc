@@ -1,0 +1,14 @@
+#!/bin/bash
+# locale/setup.loc - Prepare locale data locally
+
+# First check if a locale was specified as an argument
+if [ $# -ge 1 ]; then
+  echo "Using locale from command line: $1"
+  echo "TARGET_LOCALE=\"$1\"" >> "$MOD_TMP/env"
+else
+  # If no locale specified, use default
+  DEFAULT_LOCALE="en_US.UTF-8"
+  
+  echo "No locale specified. Using default locale: $DEFAULT_LOCALE"
+  echo "TARGET_LOCALE=\"$DEFAULT_LOCALE\"" >> "$MOD_TMP/env"
+fi

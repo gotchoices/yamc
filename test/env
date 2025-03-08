@@ -1,0 +1,62 @@
+#!/bin/bash
+# Test module - Remote env test
+# Tests passing environment variables through command line (-e flag)
+
+echo "===================================================================="
+echo "Test module - Remote env test running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# List all environment variables
+echo "Current environment variables in remote script:"
+env | sort
+
+# Display content of the env report file
+ENV_REPORT_FILE="$MOD_TMP/env_report.txt"
+if [ -f "$ENV_REPORT_FILE" ]; then
+    echo "Contents of environment report file:"
+    echo "--------------------------------------------------------------------"
+    cat "$ENV_REPORT_FILE"
+    echo "--------------------------------------------------------------------"
+else
+    echo "ERROR: Environment report file not found at $ENV_REPORT_FILE"
+fi
+
+echo "Command-line environment variables received:"
+echo "  local_hostname = $local_hostname"
+echo "  local_timestamp = $local_timestamp"
+
+# Test for command-line variables (these would be set with -e flag)
+for var in test_var1 test_var2 debug; do
+    if [ ! -z "${!var}" ]; then
+        echo "  $var = ${!var}"
+    else
+        echo "  $var = (not set)"
+    fi
+done
+
+# Create a file showing the remote environment
+REMOTE_ENV_FILE="$MOD_TMP/remote_env.txt"
+echo "Creating remote environment file: $REMOTE_ENV_FILE"
+
+cat > "$REMOTE_ENV_FILE" << EOF
+Remote environment report created on $(hostname) at $(date)
+User: $(whoami)
+
+Environment variables in remote script:
+$(env | sort)
+EOF
+
+echo "Remote environment file created"
+echo "Comparing environments..."
+
+echo "===================================================================="
+echo "Test paused. You can inspect the remote system now."
+echo "Remote temporary directory: $MOD_TMP"
+echo "Module directory mount: $MOD_DIR"
+echo
+echo "Press Enter to continue and finish the test..."
+read PAUSE_INPUT
+
+echo "===================================================================="
+echo "Env test completed successfully!"
+echo "===================================================================="

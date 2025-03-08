@@ -1,0 +1,7 @@
+#Local additions:
+
+alias ls='ls --color=tty'
+alias ll='ls -lF'
+alias lt='ll --sort=time -r'
+alias cd='pushd "$(pwd)" >/dev/null; cd '
+alias pd='popd >/dev/null'

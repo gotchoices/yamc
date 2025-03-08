@@ -1,0 +1,614 @@
+#!/bin/bash
+#
+# YAMC - Yet Another Machine Configurator
+# Remote machine configuration and management tool
+#
+
+set -e  # Exit on any errors
+
+#
+# Configuration
+#
+CONFIG_DIR="$HOME/.yamc"
+mkdir -p "$CONFIG_DIR" 2>/dev/null || true
+DEFAULT_SSH_TIMEOUT=30  # Default timeout in seconds
+
+#
+# Logging Functions
+#
+log() {
+  local level="$1"
+  local message="$2"
+  
+  case "$level" in
+    INFO)
+      echo "[INFO] $message"
+      ;;
+    DEBUG)
+      if [ "$VERBOSE" = true ]; then
+        echo "[DEBUG] $message"
+      fi
+      ;;
+    ERROR)
+      echo "[ERROR] $message" >&2
+      ;;
+    *)
+      echo "$message"
+      ;;
+  esac
+}
+
+#
+# Usage Information
+#
+show_usage() {
+  cat <<EOF
+Usage: yamc init -h remote_hostname -u username [-v] [-t timeout]
+       yamc -h remote_hostname -u username init [-v] [-t timeout]
+       yamc -h remote_hostname [-u username] [-e var=value] [-v] [-t timeout] module [subfunction] [args...]
+
+Commands:
+  init            Initialize a host for use with YAMC (required before using other modules)
+                  Must be run with a regular unprivileged user that has sudo access
+
+Options:
+  -h hostname     Required. Target remote hostname
+  -u username     Optional for modules, Required for init. SSH username (defaults to current user)
+  -e var=value    Optional. Environment variables to pass to scripts (can be used multiple times)
+  -v              Optional. Enable verbose output
+  -t timeout      Optional. SSH connection timeout in seconds (default: 30)
+  
+Arguments:
+  module          Required. Name of the module directory containing the scripts
+  subfunction     Optional. Script to run (defaults to "setup")
+  args            Optional. Additional arguments passed to the module scripts
+
+Examples:
+  yamc init -h server1 -u regular_user    # Initialize host with regular user (must have sudo access)
+  yamc -h server1 -u regular_user init    # Alternative way to initialize (same result)
+  yamc -h server1 -u root timezone America/New_York  # Run module as root (after init)
+  yamc -h server1 pref                    # Set user preferences
+  yamc -h server1 -v test                 # Run test with verbose output
+EOF
+  exit 1
+}
+
+#
+# Host Initialization
+#
+init_host() {
+  local host="$1"
+  local ssh_user="$2"
+  local timeout="$3"
+  local verbose="$4"
+  
+  log INFO "Initializing host $host for YAMC usage"
+  
+  # Create config file for this host
+  local host_config_file="$CONFIG_DIR/${host}.env"
+  rm -f "$host_config_file" 2>/dev/null || true
+  
+  # Ensure an SSH key exists locally
+  if [ ! -f "$HOME/.ssh/id_rsa" ] && [ ! -f "$HOME/.ssh/id_ed25519" ]; then
+    log INFO "No SSH key found. Generating SSH key..."
+    ssh-keygen -t rsa -b 4096 -f "$HOME/.ssh/id_rsa" -N ""
+    if [ $? -ne 0 ]; then
+      log ERROR "Failed to generate SSH key"
+      return 1
+    fi
+  fi
+  
+  # Check if SSH key is installed on the remote machine
+  log INFO "Checking SSH key authentication..."
+  if ! ssh -o BatchMode=yes -o ConnectTimeout="$timeout" "$ssh_user@$host" "echo 'SSH key authentication working'" >/dev/null 2>&1; then
+    log INFO "SSH key not found on remote host. Installing..."
+    
+    # Install the SSH key on the remote machine
+    ssh-copy-id "$ssh_user@$host"
+    
+    # Re-check if key authentication works
+    if ! ssh -o BatchMode=yes -o ConnectTimeout="$timeout" "$ssh_user@$host" "echo 'SSH key authentication working'" >/dev/null 2>&1; then
+      log ERROR "SSH key authentication failed even after installation."
+      return 1
+    fi
+    
+    log INFO "SSH key installed successfully"
+  else
+    log INFO "SSH key authentication already working"
+  fi
+  
+  # Check if SSHFS is installed on the remote machine
+  log INFO "Checking if SSHFS is installed on $host..."
+  SSHFS_CHECK=$(ssh -o ConnectTimeout="$timeout" "$ssh_user@$host" "command -v sshfs >/dev/null 2>&1 && echo 'exists' || echo 'missing'")
+  
+  if [ "$SSHFS_CHECK" = "missing" ]; then
+    log INFO "SSHFS not found on $host. Installing..."
+    
+    # Use -t flag for interactive sudo password prompt
+    log INFO "You may be prompted for the sudo password on the remote host"
+    ssh -t -o ConnectTimeout="$timeout" "$ssh_user@$host" "sudo apt-get update -qq && sudo apt-get install -y sshfs"
+    
+    # Verify installation was successful
+    SSHFS_VERIFY=$(ssh -o ConnectTimeout="$timeout" "$ssh_user@$host" "command -v sshfs >/dev/null 2>&1 && echo 'exists' || echo 'missing'")
+    
+    if [ "$SSHFS_VERIFY" = "missing" ]; then
+      log ERROR "Failed to install SSHFS on remote host"
+      log ERROR "Please install SSHFS manually and run yamc init again"
+      return 1
+    fi
+    
+    log INFO "SSHFS installed successfully"
+  else
+    log INFO "SSHFS is already installed on $host"
+  fi
+  
+  # Find sftp-server path on local system
+  log INFO "Detecting sftp-server path..."
+  local sftp_server=""
+  
+  # First check common locations - prioritize macOS path
+  for path in "/usr/libexec/sftp-server" "/usr/lib/openssh/sftp-server" "$(which sftp-server 2>/dev/null)"; do
+    if [ -x "$path" ]; then
+      sftp_server="$path"
+      break
+    fi
+  done
+  
+  # If not found, try to search for it
+  if [ -z "$sftp_server" ]; then
+    for search_path in "/usr/lib" "/usr/libexec" "/usr/local/lib" "/opt"; do
+      if [ -d "$search_path" ]; then
+        found=$(find "$search_path" -name "sftp-server" -type f -executable 2>/dev/null | head -1)
+        if [ ! -z "$found" ]; then
+          sftp_server="$found"
+          break
+        fi
+      fi
+    done
+  fi
+  
+  # Check if we found the sftp-server
+  if [ -z "$sftp_server" ]; then
+    log ERROR "Could not find sftp-server binary on the local system."
+    log ERROR "Please install OpenSSH server or locate sftp-server manually."
+    return 1
+  fi
+  
+  log INFO "Found sftp-server at: $sftp_server"
+  
+  # Store configuration information in host config file
+  log INFO "Saving configuration to $host_config_file"
+  cat > "$host_config_file" <<EOF
+# YAMC environment configuration for $host
+# Generated on $(date)
+# Do not edit manually - rerun 'yamc init' to regenerate
+
+# SSH settings
+YAMC_SSH_USER=$ssh_user
+YAMC_SSH_HOST=$host
+YAMC_SSH_KEY_INSTALLED=true
+
+# SSHFS settings
+YAMC_SSHFS_INSTALLED=true
+YAMC_SFTP_SERVER=$sftp_server
+
+# Additional discovered settings
+YAMC_INIT_TIMESTAMP=$(date +%s)
+EOF
+  
+  log INFO "Host $host successfully initialized"
+  log INFO "You can now run YAMC modules without going through initialization"
+  return 0
+}
+
+#
+# File Sharing Functions
+#
+reverse_sshfs_mount() {
+  local localpath="$1"
+  local remotehost="$2"
+  local remotepath="$3"
+  local fifo="/tmp/yamc-fifo-$$"
+  local sftp_server="$4"
+
+  log INFO "Setting up SSH file sharing..."
+  log DEBUG "Local path: $localpath"
+  log DEBUG "Remote path: $remotepath"
+  log DEBUG "SFTP server: $sftp_server"
+  
+  # Check if sftp-server exists
+  if [ ! -x "$sftp_server" ]; then
+    log ERROR "SFTP server binary not found at: $sftp_server"
+    log ERROR "Please run yamc init to configure the system correctly."
+    return 1
+  fi
+  
+  # Create a named pipe for communication
+  log DEBUG "Creating named pipe: $fifo"
+  mkfifo -m600 "$fifo"
+  
+  # Create the remote directory
+  ssh "$remotehost" "mkdir -p \"$remotepath\""
+  
+  # Check if the directory was created successfully
+  if [ $? -ne 0 ]; then
+    log ERROR "Failed to create directory on remote host"
+    rm -f "$fifo"
+    return 1
+  fi
+  
+  # Start the file sharing in the background
+  log DEBUG "Starting SFTP server and SSHFS connection"
+  < "$fifo" "$sftp_server" | ssh "$remotehost" "sshfs -o slave \":$localpath\" \"$remotepath\"" > "$fifo" &
+  
+  # Give it a moment to connect
+  sleep 2
+  
+  # Verify the mount was successful
+  local mount_check=$(ssh "$remotehost" "[ -d \"$remotepath/\" ] && ls -la \"$remotepath/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'")
+  
+  if [ "$mount_check" != "mounted" ]; then
+    log ERROR "Failed to mount remote directory. SSHFS mount unsuccessful."
+    log ERROR "Try running: yamc init -h $host -u $ssh_user"
+    rm -f "$fifo"
+    return 1
+  fi
+  
+  # Set the global variable so we can clean it up later
+  REMOTE_MOUNT="$remotepath"
+  FIFO_PATH="$fifo"
+  
+  log INFO "File sharing established: $localpath -> $remotehost:$remotepath"
+  return 0
+}
+
+#
+# Cleanup Functions
+#
+cleanup() {
+  local exit_code=$?
+  log INFO "Cleaning up temporary resources..."
+  
+  # If SSHFS was mounted, unmount it
+  if [ ! -z "$REMOTE_MOUNT" ]; then
+    log DEBUG "Unmounting remote SSHFS directory: $REMOTE_MOUNT"
+    ssh "$SSH_USER@$HOST" "fusermount -u \"$REMOTE_MOUNT\"" 2>/dev/null || true
+  fi
+  
+  # Clean up remote temporary directory
+  if [ ! -z "$REMOTE_TMP" ]; then
+    log DEBUG "Cleaning up remote temporary directory: $REMOTE_TMP"
+    ssh "$SSH_USER@$HOST" "rm -rf \"$REMOTE_TMP\"" 2>/dev/null || true
+  fi
+  
+  # Remove local temporary files and directories
+  log DEBUG "Cleaning up local temporary files"
+  
+  # CRITICAL SAFETY CHECK for MOD_TMP deletion
+  # Only remove MOD_TMP if it:
+  # 1. Is defined (not empty)
+  # 2. Contains the string "tmp-" (our naming convention)
+  # 3. Is a subdirectory of MOD_DIR (not MOD_DIR itself)
+  # 4. Actually exists as a directory
+  if [ ! -z "$MOD_TMP" ] && [[ "$MOD_TMP" == *"tmp-"* ]] && 
+     [[ "$MOD_TMP" != "$MOD_DIR" ]] && 
+     [[ "$MOD_TMP" == "$MOD_DIR/"* ]] && 
+     [ -d "$MOD_TMP" ]; then
+    log DEBUG "Removing temporary directory: $MOD_TMP"
+    rm -rf "$MOD_TMP" 2>/dev/null || true
+  else
+    log DEBUG "Skipping MOD_TMP removal due to safety checks: $MOD_TMP"
+  fi
+  
+  # Remove named pipe if it exists
+  if [ ! -z "$FIFO_PATH" ] && [ -p "$FIFO_PATH" ]; then
+    log DEBUG "Removing named pipe: $FIFO_PATH"
+    rm -f "$FIFO_PATH" 2>/dev/null || true
+  fi
+  
+  log INFO "Cleanup completed"
+  exit $exit_code
+}
+
+#
+# Command Line Parsing
+#
+parse_init_command() {
+  # Parse options for init command
+  local OPTIND=1  # Reset OPTIND to ensure proper parsing
+  
+  while getopts "h:u:vt:" opt "$@"; do
+    case $opt in
+      h) HOST="$OPTARG" ;;
+      u) SSH_USER="$OPTARG" ;;
+      v) VERBOSE=true ;;
+      t) SSH_TIMEOUT="$OPTARG" ;;
+      *) show_usage ;;
+    esac
+  done
+  
+  # Check required parameters for init
+  if [ -z "$HOST" ]; then
+    log ERROR "Remote hostname (-h) is required for initialization"
+    show_usage
+  fi
+  
+  if [ -z "$SSH_USER" ]; then
+    log ERROR "Username (-u) is required for initialization"
+    log ERROR "Must specify a regular unprivileged user with sudo access"
+    show_usage
+  fi
+  
+  # Run initialization
+  init_host "$HOST" "$SSH_USER" "$SSH_TIMEOUT" "$VERBOSE"
+  exit $?
+}
+
+parse_module_command() {
+  # Parse options for module command
+  local OPTIND=1  # Reset OPTIND to ensure proper parsing
+  
+  while getopts "h:u:e:vt:" opt "$@"; do
+    case $opt in
+      h) HOST="$OPTARG" ;;
+      u) SSH_USER="$OPTARG" ;;
+      e) ENV_VARS+=("$OPTARG") ;;
+      v) VERBOSE=true ;;
+      t) SSH_TIMEOUT="$OPTARG" ;;
+      *) show_usage ;;
+    esac
+  done
+
+  # Shift past the options using the original args
+  shift $((OPTIND-1))
+
+  # Get the module and subfunction and additional args
+  if [ $# -gt 0 ]; then
+    MODULE="$1"
+    shift
+    
+    if [ $# -gt 0 ]; then
+      SUBFUNC="$1"
+      shift
+    fi
+    
+    # Any remaining args will be passed to the module scripts
+    MODULE_ARGS=("$@")
+  else
+    show_usage
+  fi
+
+  # Check required parameters
+  if [ -z "$HOST" ]; then
+    log ERROR "Remote hostname (-h) is required"
+    show_usage
+  fi
+
+  if [ -z "$MODULE" ]; then
+    log ERROR "Module name is required"
+    show_usage
+  fi
+}
+
+run_module() {
+  # These variables should already be set globally
+  # HOST, SSH_USER, MODULE, SUBFUNC are used from global context
+  
+  # Setup base paths
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  MOD_DIR="$SCRIPT_DIR/$MODULE"
+  # Create the temp directory as a subdirectory of the module directory
+  MOD_TMP="$MOD_DIR/tmp-$$"
+  mkdir -p "$MOD_TMP"
+
+  # Set up trap to ensure cleanup on exit
+  trap cleanup EXIT INT TERM
+
+  # Check if module exists
+  if [ ! -d "$MOD_DIR" ]; then
+    log ERROR "Module '$MODULE' not found in $SCRIPT_DIR"
+    exit 1
+  fi
+
+  # Check if subfunction script exists
+  if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
+    log ERROR "Subfunction script '$SUBFUNC' not found in module '$MODULE'"
+    exit 1
+  fi
+
+  # Check if host has been initialized
+  HOST_CONFIG_FILE="$CONFIG_DIR/${HOST}.env"
+  if [ ! -f "$HOST_CONFIG_FILE" ]; then
+    log ERROR "Host $HOST has not been initialized for YAMC"
+    log ERROR "Please run 'yamc init -h $HOST -u username' first"
+    exit 1
+  fi
+
+  # Load the host configuration
+  log DEBUG "Loading host configuration from $HOST_CONFIG_FILE"
+  source "$HOST_CONFIG_FILE"
+
+  # Use loaded SFTP server path
+  SFTP_SERVER="$YAMC_SFTP_SERVER"
+
+  # Show summary of what we're doing
+  log INFO "YAMC: Configuring '$HOST' with module '$MODULE' (subfunction: $SUBFUNC)"
+
+  # Test SSH connectivity first
+  log INFO "Testing SSH connection to $SSH_USER@$HOST..."
+
+  # Try connecting with terminal allocation
+  ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "echo 'SSH connection successful'" >/dev/null 2>&1
+  SSH_RESULT=$?
+
+  if [ $SSH_RESULT -ne 0 ]; then
+    log ERROR "Cannot connect to $SSH_USER@$HOST (exit code: $SSH_RESULT)"
+    log ERROR "Please check:"
+    log ERROR "  - Hostname is correct"
+    log ERROR "  - Network connectivity to the host"
+    log ERROR "  - SSH service is running on remote host"
+    log ERROR "  - SSH key is properly installed"
+    log ERROR ""
+    log ERROR "Try manually with: ssh $SSH_USER@$HOST"
+    log ERROR "Or reinitialize with: yamc init -h $HOST -u username"
+    exit 1
+  fi
+  log INFO "SSH connection successful"
+
+  # Process command-line environment variables
+  ENV_FILE="$MOD_TMP/env"
+  touch "$ENV_FILE"
+
+  # Add any command-line environment variables to the env file
+  for var in "${ENV_VARS[@]}"; do
+    echo "$var" >> "$ENV_FILE"
+  done
+
+  # Run local setup script if it exists
+  if [ -f "$MOD_DIR/${SUBFUNC}.loc" ]; then
+    log INFO "Running local setup script: ${SUBFUNC}.loc"
+    
+    # Source the local script in a subshell to avoid environment pollution
+    (
+      # Export environment variables for the local script
+      export MOD_DIR="$MOD_DIR"
+      export MOD_TMP="$MOD_TMP"
+      export ssh_user="$SSH_USER"
+      export tgt_host="$HOST"
+      
+      # Export any provided environment variables
+      if [ -f "$ENV_FILE" ]; then
+        while IFS= read -r line; do
+          # Skip empty lines and comments
+          [[ -z "$line" || "$line" =~ ^# ]] && continue
+          # Extract var name and value
+          var_name="${line%%=*}"
+          var_value="${line#*=}"
+          # Export the variable
+          export "$var_name"="$var_value"
+        done < "$ENV_FILE"
+      fi
+      
+      # Source the local setup script with additional args
+      source "$MOD_DIR/${SUBFUNC}.loc" "${MODULE_ARGS[@]}"
+    )
+    
+    # Check exit status of local script
+    if [ $? -ne 0 ]; then
+      log ERROR "Local setup script failed with error code $?"
+      exit 1
+    fi
+  fi
+
+  # Create remote temporary directory
+  log INFO "Creating remote temporary directory..."
+  REMOTE_TMP=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-${MODULE}-XXXXXX")
+
+  if [ -z "$REMOTE_TMP" ]; then
+    log ERROR "Failed to create temporary directory on remote host"
+    exit 1
+  fi
+
+  log INFO "Created remote temporary directory: $REMOTE_TMP"
+  log DEBUG "Local module dir: $MOD_DIR"
+  log DEBUG "Remote temporary dir: $REMOTE_TMP"
+
+  # Mount the module directory on the remote host
+  reverse_sshfs_mount "$MOD_DIR" "$SSH_USER@$HOST" "$REMOTE_TMP" "$SFTP_SERVER"
+
+  # If mount failed, exit
+  if [ $? -ne 0 ]; then
+    log ERROR "Failed to set up file sharing. Cannot continue."
+    exit 1
+  fi
+
+  # Prepare environment variables for remote execution
+  ENV_EXPORTS=""
+  if [ -f "$ENV_FILE" ]; then
+    # Read the environment file and build a string of exports
+    while IFS= read -r line; do
+      # Skip empty lines and comments
+      [[ -z "$line" || "$line" =~ ^# ]] && continue
+      ENV_EXPORTS+="export $line; "
+    done < "$ENV_FILE"
+  fi
+
+  # Prepare additional arguments if any
+  MODULE_ARGS_STR=""
+  if [ ${#MODULE_ARGS[@]} -gt 0 ]; then
+    for arg in "${MODULE_ARGS[@]}"; do
+      MODULE_ARGS_STR+=" \"$arg\""
+    done
+  fi
+
+  # Extract the relative path of MOD_TMP from MOD_DIR
+  RELATIVE_TMP=${MOD_TMP#$MOD_DIR/}
+  
+  # Run the remote script
+  log INFO "Running remote script: $SUBFUNC"
+  log DEBUG "Remote command: cd $REMOTE_TMP && $ENV_EXPORTS MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
+
+  ssh -t -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "cd $REMOTE_TMP && $ENV_EXPORTS MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
+
+  RESULT=$?
+  if [ $RESULT -ne 0 ]; then
+    log ERROR "Remote script execution failed with error code $RESULT"
+    exit 1
+  fi
+
+  log INFO "Module '$MODULE' completed successfully on '$HOST'"
+  exit 0
+}
+
+#
+# Main Script Logic
+#
+
+# Initialize default values as globals
+SSH_USER="$(whoami)"
+HOST=""
+MODULE=""
+SUBFUNC="setup"
+ENV_VARS=()
+VERBOSE=false
+SSH_TIMEOUT="$DEFAULT_SSH_TIMEOUT"
+INIT_MODE=false
+
+# Look for "init" as first non-option argument
+# First, check if the very first argument is "init"
+if [ "$1" = "init" ]; then
+  INIT_MODE=true
+  shift
+  parse_init_command "$@"
+else
+  # Process the options first, then look for init
+  # Save original args for later
+  original_args=("$@")
+  
+  # Parse just the options, stop at first non-option argument
+  while getopts ":h:u:e:vt:" opt; do
+    case $opt in
+      h) HOST="$OPTARG" ;;
+      u) SSH_USER="$OPTARG" ;;
+      e) ENV_VARS+=("$OPTARG") ;;
+      v) VERBOSE=true ;;
+      t) SSH_TIMEOUT="$OPTARG" ;;
+      *) : ;; # Ignore unknown options for now
+    esac
+  done
+  
+  # Shift to the first non-option argument
+  shift $((OPTIND-1))
+  
+  # Now check if the first non-option argument is "init"
+  if [ "$1" = "init" ]; then
+    INIT_MODE=true
+    shift
+    # Pass all remaining arguments to the init parser
+    parse_init_command "-h" "$HOST" "-u" "$SSH_USER" "$@"
+  else
+    # Regular command parsing (non-init mode)
+    parse_module_command "${original_args[@]}"
+    run_module
+  fi
+fi

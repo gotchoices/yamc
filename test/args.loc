@@ -1,0 +1,27 @@
+#!/bin/bash
+# Test module - Local args test
+# This tests passing arguments to module scripts
+
+echo "Test module - Local args setup running..."
+
+# Create a test file with arguments
+TEST_ARGS_FILE="$MOD_TMP/test_args.txt"
+echo "Creating args test file: $TEST_ARGS_FILE"
+
+cat > "$TEST_ARGS_FILE" << EOF
+Arguments test file created by YAMC on $(date)
+Arguments received by local script:
+$@
+EOF
+
+echo "Args test file created with the following arguments: $@"
+
+# Pass the arguments count to the remote script
+echo "args_count=\"$#\"" >> "$MOD_TMP/env"
+if [ $# -gt 0 ]; then
+    for i in $(seq 1 $#); do
+        echo "arg$i=\"${!i}\"" >> "$MOD_TMP/env"
+    done
+fi
+
+echo "Local args test completed successfully"
