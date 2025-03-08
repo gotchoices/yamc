@@ -158,6 +158,81 @@ Planned modules:
 - `named`: Configure the machine as a DNS server
 - `mailserver`: Set up a mail server
 
+## Installation
+
+YAMC can be installed system-wide or run directly from the source directory.
+
+### System-wide Installation
+
+To install YAMC system-wide with default settings:
+
+```bash
+git clone https://github.com/gotchoices/yamc.git
+cd yamc
+sudo ./install.sh
+```
+
+This will:
+- Install core scripts to `/usr/local/lib/yamc/`
+- Create symlinks in `/usr/local/bin/` for `yamc` and `yamcity`
+- Install modules to `/usr/local/lib/yamc/modules/`
+- Install documentation to `/usr/local/share/doc/yamc/`
+
+#### Custom Installation Location
+
+You can customize the installation location:
+
+```bash
+# Install to a different prefix
+sudo ./install.sh --prefix /opt
+
+# Install to specific directories
+sudo ./install.sh --lib-dir ~/lib/yamc --bin-dir ~/bin
+```
+
+#### Uninstalling
+
+To uninstall YAMC:
+
+```bash
+sudo ./install.sh --uninstall
+```
+
+### Running Without Installation
+
+You can also run YAMC directly from the source directory:
+
+```bash
+git clone https://github.com/gotchoices/yamc.git
+cd yamc
+./yamc -h hostname init
+./yamc -h hostname module
+```
+
+### Using Custom Modules
+
+YAMC searches for modules in multiple locations (in order):
+
+1. Absolute path (if module name is a full path)
+2. Relative to current directory
+3. User's personal modules (`$HOME/.yamc/modules/`)
+4. System-wide custom modules (`/etc/yamc/modules/`)
+5. Installed modules directory (e.g., `/usr/local/lib/yamc/modules/`)
+
+To create and use your own modules:
+
+```bash
+# Create a user module directory
+mkdir -p ~/.yamc/modules/mymodule
+
+# Create the required setup script
+touch ~/.yamc/modules/mymodule/setup
+chmod +x ~/.yamc/modules/mymodule/setup
+
+# Use the module
+yamc -h hostname mymodule
+```
+
 ## Prerequisites
 
 - Bash shell environment

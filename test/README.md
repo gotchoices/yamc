@@ -91,3 +91,52 @@ If you encounter any errors during testing, check:
 ## Cleaning Up
 
 All temporary files and directories are automatically cleaned up when the test completes or if it's interrupted.
+
+## Technical Background
+
+The tests rely on YAMC's core reverse SSHFS mounting functionality, which works through:
+
+1. Creating a named pipe (FIFO) for bidirectional communication
+2. Using the local sftp-server binary to serve files
+3. Establishing an SSHFS mount on the remote machine that accesses local files
+
+### How Reverse SSHFS Works
+
+```bash
+# This simplified diagram shows how the reverse SSHFS mount works:
+local machine                 | remote machine
+-----------------------------|----------------------------
+[named pipe (FIFO)]          |
+  ^                          |
+  |                          |
+[sftp-server] <----SSH----> [sshfs -o slave]
+```
+
+The SSHFS mount in slave mode connects to the SFTP server through a single SSH connection's stdin/stdout, which is connected to the local named pipe.
+
+## Troubleshooting Mount Issues
+
+If you encounter mount problems:
+
+1. **Stale Mounts**: Previous interrupted sessions might leave stale mounts
+   - Check with: `ssh user@host mount | grep yamc`
+   - Clean up with: `ssh user@host fusermount -u /tmp/yamc-*`
+
+2. **SSHFS Installation**: Ensure SSHFS is installed on the remote host
+   - Check with: `ssh user@host which sshfs`
+   - YAMC should auto-install this during init, but you can manually install with:
+     `ssh user@host sudo apt-get install -y sshfs`
+
+3. **Connection Issues**: Ensure SSH key authentication is working
+   - Test with: `ssh -o BatchMode=yes user@host echo "Test"`
+
+4. **Permissions**: Check that the user has permissions to create mount points
+
+## Manual Verification Commands
+
+For advanced troubleshooting, these commands can be useful:
+
+- Check mount status: `ssh user@host ls -la /tmp/yamc-*`
+- Manually unmount: `ssh user@host fusermount -u /tmp/yamc-test-mount`
+- Check for stale mounts: `ssh user@host mount | grep yamc`
+- Verify SFTP server path: `which sftp-server`
