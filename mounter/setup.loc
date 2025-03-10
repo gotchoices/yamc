@@ -1,0 +1,46 @@
+#!/bin/bash
+# mounter/setup.loc - Prepare for NFS mounter installation
+#
+# This script validates and prepares parameters for the mounter module.
+# It ensures that remote and local mount points are specified.
+
+echo "Preparing NFS mounter installation..."
+
+# Parse arguments to find remote and local parameters
+REMOTE=""
+LOCAL=""
+
+for arg in "$@"; do
+  if [[ "$arg" == remote=* ]]; then
+    REMOTE="${arg#remote=}"
+  elif [[ "$arg" == local=* ]]; then
+    LOCAL="${arg#local=}"
+  fi
+done
+
+# Validate parameters
+if [ -z "$REMOTE" ]; then
+  echo "ERROR: Remote NFS share not specified."
+  echo "Usage: yamc -h hostname -u username mounter remote=server:/share local=/mount/point"
+  exit 1
+fi
+
+if [ -z "$LOCAL" ]; then
+  echo "ERROR: Local mount point not specified."
+  echo "Usage: yamc -h hostname -u username mounter remote=server:/share local=/mount/point"
+  exit 1
+fi
+
+# Check for valid remote format (server:/path)
+if ! echo "$REMOTE" | grep -q ':/'; then
+  echo "WARNING: Remote path '$REMOTE' doesn't match expected format 'server:/path'"
+  echo "Continuing, but this might not work correctly."
+fi
+
+# Pass variables to the remote script
+echo "REMOTE=\"$REMOTE\"" >> "$MOD_TMP/env"
+echo "LOCAL=\"$LOCAL\"" >> "$MOD_TMP/env"
+
+echo "NFS mounter configuration prepared:"
+echo "  Remote: $REMOTE"
+echo "  Local: $LOCAL"

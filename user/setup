@@ -1,0 +1,47 @@
+#!/bin/bash
+# user/setup - Create a system user
+#
+# This script creates a local system user with the specified name (defaults to 'admin').
+# Useful for PostgreSQL peer authentication, service accounts, or other purposes.
+#
+# Usage: yamc -h hostname -u root user [-e username=customname] [-e description="User Description"]
+
+set -e  # Exit on any error
+
+echo "===== Creating System User ====="
+
+# Get parameters with defaults
+NEW_USER="${username:-admin}"
+DESCRIPTION="${description:-System User}"
+
+echo "Creating user: $NEW_USER"
+echo "Description: $DESCRIPTION"
+
+# Check if the user already exists
+if grep -q "^${NEW_USER}:" /etc/passwd; then
+  echo "User '$NEW_USER' already exists."
+else
+  # Check if the group already exists
+  if grep -q "^${NEW_USER}:" /etc/group; then
+    echo "Creating user '$NEW_USER' in existing group '$NEW_USER'..."
+    adduser --gecos "$DESCRIPTION" --disabled-password "$NEW_USER" --ingroup "$NEW_USER"
+  else
+    echo "Creating user '$NEW_USER' and group '$NEW_USER'..."
+    adduser --gecos "$DESCRIPTION" --disabled-password "$NEW_USER"
+  fi
+  
+  echo "User '$NEW_USER' created successfully."
+fi
+
+echo "===== User Creation Complete ====="
+echo ""
+echo "You can now log in as '$NEW_USER' with:"
+echo "  su - $NEW_USER"
+echo ""
+echo "To set a password for this user (recommended):"
+echo "  sudo passwd $NEW_USER"
+echo ""
+echo "For PostgreSQL peer authentication, you can connect as:"
+echo "  sudo -u $NEW_USER psql postgres"
+echo ""
+exit 0

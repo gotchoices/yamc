@@ -1,0 +1,66 @@
+#!/bin/bash
+# postgresql/config - Apply locally edited PostgreSQL main configuration
+#
+# This script applies the postgresql.conf file that was edited locally
+# to the remote PostgreSQL installation.
+#
+# Usage: yamc -h hostname -u root postgresql config
+
+set -e  # Exit on any error
+
+echo "===== Applying PostgreSQL Main Configuration ====="
+
+# Get variables from local script
+PG_CONFIG_DIR="${PG_CONFIG_DIR}"
+PG_CONF_FILE="${PG_CONF_FILE}"
+PG_CONF_MODIFIED="${PG_CONF_MODIFIED:-no}"
+
+# If paths weren't passed from the local script, determine them
+if [ -z "$PG_CONF_FILE" ]; then
+  # Find PostgreSQL version and data directory
+  PG_VER=$(psql --version | grep -oP 'psql \(PostgreSQL\) \K[0-9]+' || echo "13")
+  PG_CONFIG_DIR="/etc/postgresql/${PG_VER}/main"
+  PG_CONF_FILE="${PG_CONFIG_DIR}/postgresql.conf"
+fi
+
+# Verify that the configuration file exists
+if [ ! -f "$PG_CONF_FILE" ]; then
+  echo "ERROR: PostgreSQL configuration file not found at: $PG_CONF_FILE"
+  echo "Is PostgreSQL installed correctly?"
+  exit 1
+fi
+
+echo "Found PostgreSQL configuration at: $PG_CONF_FILE"
+
+# Check if the file was modified locally
+if [ "$PG_CONF_MODIFIED" = "no" ]; then
+  echo "No changes were made to the configuration file."
+  echo "Configuration remains unchanged."
+  exit 0
+fi
+
+# Create a backup of the current file before replacing it
+echo "Creating backup of current configuration..."
+BACKUP_FILE="${PG_CONF_FILE}.$(date +%Y%m%d%H%M%S).bak"
+cp "$PG_CONF_FILE" "$BACKUP_FILE"
+echo "Backup created at: $BACKUP_FILE"
+
+# Copy the locally edited file to the actual location
+echo "Applying configuration changes..."
+cp "$MOD_TMP/postgresql_config/postgresql.conf" "$PG_CONF_FILE"
+
+# Set proper ownership and permissions
+echo "Setting proper permissions..."
+chown postgres:postgres "$PG_CONF_FILE"
+chmod 640 "$PG_CONF_FILE"
+
+# Reload PostgreSQL to apply changes
+echo "Reloading PostgreSQL to apply changes..."
+systemctl reload postgresql
+
+echo "===== PostgreSQL Configuration Updated ====="
+echo "Your changes have been applied and PostgreSQL has been reloaded."
+echo "Some configuration changes may require a restart instead of reload:"
+echo "  systemctl restart postgresql"
+echo ""
+exit 0

@@ -1,0 +1,76 @@
+#!/bin/bash
+# postgresql/setup - Install and configure PostgreSQL
+#
+# This script installs PostgreSQL and performs basic initialization.
+#
+# Usage: yamc -h hostname -u root postgresql [version]
+# Example: yamc -h server -u root postgresql 14
+
+set -e  # Exit on any error
+
+echo "===== Installing PostgreSQL ====="
+
+# Set PostgreSQL version (default or from parameter)
+PG_VER="${PG_VERSION:-13}"
+echo "Using PostgreSQL version: $PG_VER"
+
+# Add PostgreSQL repository
+echo "Setting up PostgreSQL repository..."
+KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+REPO_URL="deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main"
+REPO_FILE="/etc/apt/sources.list.d/pgdg.list"
+GPG_FILE="/etc/apt/trusted.gpg.d/apt.postgresql.org.gpg"
+
+if [ ! -f "$GPG_FILE" ]; then
+  echo "Downloading PostgreSQL repository key..."
+  curl -s "$KEY_URL" | gpg --dearmor | tee "$GPG_FILE" >/dev/null
+fi
+
+if ! grep -q "$REPO_URL" "$REPO_FILE" 2>/dev/null; then
+  echo "Adding PostgreSQL repository..."
+  echo "$REPO_URL" | tee -a "$REPO_FILE"
+  apt-get update
+fi
+
+# Check if PostgreSQL is already installed
+if command -v psql >/dev/null 2>&1; then
+  pg_version=$(psql --version)
+  echo "PostgreSQL is already installed: $pg_version"
+else
+  echo "Installing PostgreSQL packages..."
+  DEBIAN_FRONTEND=noninteractive apt-get -q install -y \
+    postgresql-${PG_VER} \
+    postgresql-contrib-${PG_VER} \
+    postgresql-client-${PG_VER} \
+    libpq-dev
+  
+  echo "PostgreSQL installed successfully."
+fi
+
+# Ensure PostgreSQL is enabled and running
+echo "Ensuring PostgreSQL service is enabled and running..."
+systemctl enable postgresql
+systemctl start postgresql
+
+# Verify installation
+if ! systemctl is-active --quiet postgresql; then
+  echo "ERROR: PostgreSQL service is not running after installation."
+  echo "Check logs with: journalctl -u postgresql"
+  exit 1
+fi
+
+echo "PostgreSQL service is running."
+
+# Display connection information
+pg_version=$(psql --version)
+echo "===== PostgreSQL Installation Complete ====="
+echo "Version: $pg_version"
+echo "Main configuration directory: /etc/postgresql/${PG_VER}/main/"
+echo "Data directory: /var/lib/postgresql/${PG_VER}/main/"
+echo ""
+echo "You can now use these subcommands for additional configuration:"
+echo "  yamc -h hostname -u root postgresql:client   - Install client packages only"
+echo "  yamc -h hostname -u root postgresql:access   - Edit access configuration"
+echo "  yamc -h hostname -u root postgresql:config   - Edit PostgreSQL configuration"
+echo ""
+exit 0

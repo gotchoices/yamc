@@ -1,0 +1,101 @@
+#!/bin/bash
+# postgresql/access.loc - Prepare for editing PostgreSQL access configuration
+#
+# This script fetches the pg_hba.conf file from the remote system
+# to allow editing with the local editor.
+
+echo "===== Preparing to Edit PostgreSQL Access Configuration ====="
+
+# Create a temporary directory for the configuration file
+LOCAL_TMP_DIR="$MOD_TMP/postgresql_config"
+mkdir -p "$LOCAL_TMP_DIR"
+
+# Fetch PostgreSQL version information
+PG_VERSION=$(ssh ${SSH_OPTS} ${ssh_user}@${tgt_host} "psql --version | grep -oP 'psql \(PostgreSQL\) \K[0-9]+' || echo '13'")
+echo "Remote PostgreSQL version: $PG_VERSION"
+
+# Determine the path to the pg_hba.conf file
+PG_CONFIG_DIR="/etc/postgresql/${PG_VERSION}/main"
+PG_HBA_FILE="${PG_CONFIG_DIR}/pg_hba.conf"
+
+# Check if the configuration file exists on the remote system
+REMOTE_FILE_EXISTS=$(ssh ${SSH_OPTS} ${ssh_user}@${tgt_host} "test -f '$PG_HBA_FILE' && echo yes || echo no")
+
+if [ "$REMOTE_FILE_EXISTS" = "no" ]; then
+  echo "ERROR: PostgreSQL configuration file not found at: $PG_HBA_FILE"
+  echo "Is PostgreSQL installed correctly on the remote system?"
+  exit 1
+fi
+
+echo "Found PostgreSQL configuration at: $PG_HBA_FILE"
+
+# Copy the remote configuration file to the local temporary directory
+echo "Fetching configuration file from remote system..."
+scp ${SCP_OPTS} ${ssh_user}@${tgt_host}:"$PG_HBA_FILE" "$LOCAL_TMP_DIR/pg_hba.conf"
+
+if [ ! -f "$LOCAL_TMP_DIR/pg_hba.conf" ]; then
+  echo "ERROR: Failed to copy the configuration file from the remote system."
+  exit 1
+fi
+
+# Store the original file's hash to detect changes
+ORIGINAL_HASH=$(md5sum "$LOCAL_TMP_DIR/pg_hba.conf" | awk '{print $1}')
+echo "PG_HBA_ORIGINAL_HASH=$ORIGINAL_HASH" >> "$MOD_TMP/env"
+echo "PG_HBA_FILE=$PG_HBA_FILE" >> "$MOD_TMP/env"
+echo "PG_CONFIG_DIR=$PG_CONFIG_DIR" >> "$MOD_TMP/env"
+
+# Also create a backup of the original file for safety
+cp "$LOCAL_TMP_DIR/pg_hba.conf" "$LOCAL_TMP_DIR/pg_hba.conf.original"
+
+# Display some helpful information
+echo ""
+echo "===== PostgreSQL Access Configuration Guidelines ====="
+echo "Common configurations:"
+echo "  local   all     postgres     peer     # Local connections as postgres user"
+echo "  local   all     all          peer     # Local connections as matching system user"
+echo "  host    all     all    127.0.0.1/32   md5      # Local TCP connections with password"
+echo "  host    all     all         all       md5      # Any TCP connection with password"
+echo ""
+
+# Launch the local editor
+echo "Opening local editor to modify access configuration..."
+echo "Please make your changes and save the file when done."
+
+# Determine which editor to use
+if [ -n "$EDITOR" ]; then
+  echo "Using editor: $EDITOR"
+  $EDITOR "$LOCAL_TMP_DIR/pg_hba.conf"
+elif [ -n "$VISUAL" ]; then
+  echo "Using editor: $VISUAL"
+  $VISUAL "$LOCAL_TMP_DIR/pg_hba.conf"
+else
+  # Try to find a suitable editor
+  if command -v code >/dev/null 2>&1; then
+    echo "Using VS Code editor"
+    code --wait "$LOCAL_TMP_DIR/pg_hba.conf"
+  elif command -v subl >/dev/null 2>&1; then
+    echo "Using Sublime Text editor"
+    subl --wait "$LOCAL_TMP_DIR/pg_hba.conf"
+  elif command -v vim >/dev/null 2>&1; then
+    echo "Using vim editor"
+    vim "$LOCAL_TMP_DIR/pg_hba.conf"
+  elif command -v nano >/dev/null 2>&1; then
+    echo "Using nano editor"
+    nano "$LOCAL_TMP_DIR/pg_hba.conf"
+  else
+    echo "No suitable editor found. Please set the EDITOR environment variable."
+    exit 1
+  fi
+fi
+
+# Check if the file was modified
+NEW_HASH=$(md5sum "$LOCAL_TMP_DIR/pg_hba.conf" | awk '{print $1}')
+if [ "$ORIGINAL_HASH" = "$NEW_HASH" ]; then
+  echo "No changes were made to the configuration file."
+  echo "PG_HBA_MODIFIED=no" >> "$MOD_TMP/env"
+else
+  echo "Configuration file was modified."
+  echo "PG_HBA_MODIFIED=yes" >> "$MOD_TMP/env"
+fi
+
+echo "PostgreSQL access configuration preparation complete."

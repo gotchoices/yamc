@@ -1,0 +1,93 @@
+#!/bin/bash
+# mongo/setup - Install and configure MongoDB
+#
+# This script installs MongoDB from the official repository
+# and configures it as a system service.
+#
+# Usage: yamc -h hostname -u root mongo [-e version=7.0]
+
+set -e  # Exit on any error
+
+echo "===== Installing MongoDB ====="
+
+# Get MongoDB version (default to 7.0 if not specified)
+MONGO_VERSION="${version:-7.0}"
+echo "Target MongoDB version: $MONGO_VERSION"
+
+# Check if MongoDB is already installed
+if command -v mongod >/dev/null 2>&1; then
+  CURRENT_VERSION=$(mongod --version | grep -oP "db version v\K[0-9]+\.[0-9]+" | head -1)
+  echo "MongoDB is already installed: version $CURRENT_VERSION"
+  
+  if [[ "$CURRENT_VERSION" == "$MONGO_VERSION"* ]]; then
+    echo "MongoDB version $MONGO_VERSION is already installed."
+    
+    # Ensure service is enabled and running
+    if systemctl is-active --quiet mongod; then
+      echo "MongoDB service is running."
+    else
+      echo "MongoDB service is installed but not running. Starting it now..."
+      systemctl start mongod
+      systemctl enable mongod
+    fi
+    
+    exit 0
+  else
+    echo "MongoDB version $CURRENT_VERSION is installed, but version $MONGO_VERSION was requested."
+    echo "Will update MongoDB to the requested version."
+  fi
+fi
+
+# Install dependencies
+echo "Installing dependencies..."
+apt-get update -q
+apt-get install -y gnupg curl
+
+# Add MongoDB repository key
+echo "Adding MongoDB repository key..."
+curl -fsSL "https://pgp.mongodb.com/server-$MONGO_VERSION.asc" | \
+  gpg -o /usr/share/keyrings/mongodb-server-$MONGO_VERSION.gpg --dearmor
+
+# Determine Ubuntu version
+UBUNTU_VERSION=$(lsb_release -sc)
+echo "Detected Ubuntu version: $UBUNTU_VERSION"
+
+# Add MongoDB repository
+echo "Adding MongoDB repository..."
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-$MONGO_VERSION.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_VERSION/mongodb-org/$MONGO_VERSION multiverse" | \
+  tee /etc/apt/sources.list.d/mongodb-org-$MONGO_VERSION.list
+
+# Install MongoDB
+echo "Installing MongoDB packages..."
+apt-get update -q
+apt-get install -y mongodb-org
+
+# Start and enable MongoDB service
+echo "Configuring MongoDB service..."
+systemctl daemon-reload
+systemctl start mongod
+systemctl enable mongod
+
+# Verify installation
+echo "Verifying MongoDB installation..."
+if systemctl is-active --quiet mongod; then
+  echo "MongoDB service is running."
+  INSTALLED_VERSION=$(mongod --version | grep -oP "db version v\K[0-9]+\.[0-9]+" | head -1)
+  echo "MongoDB version $INSTALLED_VERSION has been successfully installed."
+else
+  echo "ERROR: MongoDB service failed to start."
+  echo "Check logs with: journalctl -u mongod"
+  exit 1
+fi
+
+echo "===== MongoDB Installation Complete ====="
+echo ""
+echo "MongoDB is now installed and running as a service."
+echo "Configuration file: /etc/mongod.conf"
+echo "Log file: /var/log/mongodb/mongod.log"
+echo "Data directory: /var/lib/mongodb"
+echo ""
+echo "You can connect to MongoDB with the mongo shell:"
+echo "  mongosh"
+echo ""
+exit 0

@@ -14,6 +14,7 @@ The K editor provides a simple yet powerful text editing experience with feature
 ## Usage
 
 ```bash
+# Install K editor
 yamc -h hostname -u root k
 ```
 
@@ -40,7 +41,7 @@ yamc -h hostname -u root k
 - `k21.tgz`: Source archive for the K editor
 - `krc`: Configuration file for the editor
 - `termcap`: Terminal capabilities database
-- `setup.kback`: Script to set up backup functionality
+- `cron-kback.sh`: Script installed as cron job to maintain backup directory
 
 ## Post-Installation
 

@@ -1,0 +1,20 @@
+#!/bin/bash
+# node/setup.loc - Prepare for Node.js installation
+#
+# This script validates the Node.js version parameter.
+
+# Check for version parameter
+if [ -n "$version" ]; then
+  # Validate that the version is a positive integer
+  if [[ "$version" =~ ^[0-9]+$ ]]; then
+    echo "Using Node.js version: $version"
+  else
+    echo "WARNING: Invalid version format '$version'. Version must be a positive integer."
+    echo "Using default version 18 instead."
+    
+    # Reset the version parameter to the default
+    echo "version=\"18\"" >> "$MOD_TMP/env"
+  fi
+else
+  echo "No version specified. Using default Node.js version: 18"
+fi

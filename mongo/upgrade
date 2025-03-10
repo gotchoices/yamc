@@ -1,0 +1,95 @@
+#!/bin/bash
+# mongo/upgrade - Upgrade MongoDB to a specified version
+#
+# This script upgrades an existing MongoDB installation to a specified version
+# using the official MongoDB repositories.
+#
+# Usage: yamc -h hostname -u root mongo upgrade [-e version=7.0]
+
+set -e  # Exit on any error
+
+echo "===== Upgrading MongoDB ====="
+
+# Get MongoDB version (default to 7.0 if not specified)
+MONGO_VERSION="${version:-7.0}"
+echo "Target MongoDB version: $MONGO_VERSION"
+
+# Check if MongoDB is already installed
+if ! command -v mongod >/dev/null 2>&1; then
+  echo "ERROR: MongoDB is not installed. Please install it first:"
+  echo "  yamc -h hostname -u root mongo"
+  exit 1
+fi
+
+# Get current MongoDB version
+CURRENT_VERSION=$(mongod --version | grep -oP "db version v\K[0-9]+\.[0-9]+" | head -1)
+echo "Current MongoDB version: $CURRENT_VERSION"
+
+# Check if already at the requested version
+if [[ "$CURRENT_VERSION" == "$MONGO_VERSION"* ]]; then
+  echo "MongoDB is already at version $CURRENT_VERSION."
+  echo "No upgrade needed."
+  exit 0
+fi
+
+# Stop MongoDB service before upgrade
+echo "Stopping MongoDB service..."
+systemctl stop mongod
+
+# Backup MongoDB data
+echo "Creating backup of MongoDB data..."
+BACKUP_DIR="/var/lib/mongodb_backup_$(date +%Y%m%d%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+cp -r /var/lib/mongodb/* "$BACKUP_DIR/"
+echo "Backup created at: $BACKUP_DIR"
+
+# Install dependencies
+echo "Installing dependencies..."
+apt-get update -q
+apt-get install -y gnupg curl
+
+# Add MongoDB repository key
+echo "Adding MongoDB repository key..."
+curl -fsSL "https://pgp.mongodb.com/server-$MONGO_VERSION.asc" | \
+  gpg -o /usr/share/keyrings/mongodb-server-$MONGO_VERSION.gpg --dearmor
+
+# Determine Ubuntu version
+UBUNTU_VERSION=$(lsb_release -sc)
+echo "Detected Ubuntu version: $UBUNTU_VERSION"
+
+# Add MongoDB repository
+echo "Adding MongoDB repository..."
+echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-$MONGO_VERSION.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_VERSION/mongodb-org/$MONGO_VERSION multiverse" | \
+  tee /etc/apt/sources.list.d/mongodb-org-$MONGO_VERSION.list
+
+# Upgrade MongoDB
+echo "Upgrading MongoDB packages..."
+apt-get update -q
+apt-get install -y mongodb-org
+
+# Start MongoDB service
+echo "Starting MongoDB service..."
+systemctl daemon-reload
+systemctl start mongod
+systemctl enable mongod
+
+# Verify installation
+echo "Verifying MongoDB upgrade..."
+if systemctl is-active --quiet mongod; then
+  NEW_VERSION=$(mongod --version | grep -oP "db version v\K[0-9]+\.[0-9]+" | head -1)
+  echo "MongoDB has been successfully upgraded from $CURRENT_VERSION to $NEW_VERSION."
+else
+  echo "ERROR: MongoDB service failed to start after upgrade."
+  echo "Check logs with: journalctl -u mongod"
+  echo "Your data has been backed up to: $BACKUP_DIR"
+  exit 1
+fi
+
+echo "===== MongoDB Upgrade Complete ====="
+echo ""
+echo "MongoDB $NEW_VERSION is now running."
+echo "Your previous data has been preserved and a backup was created at: $BACKUP_DIR"
+echo "If everything is working correctly, you can remove the backup with:"
+echo "  rm -rf $BACKUP_DIR"
+echo ""
+exit 0

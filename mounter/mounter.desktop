@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Mounter
+Comment=Mount NFS volume
+Exec=/home/pi/mounter.sh
+Icon=drive-network
+Terminal=true
+Type=Application
+Categories=Utility;

@@ -1,0 +1,133 @@
+#!/bin/bash
+# postgresql/upgrade - Upgrade PostgreSQL to a newer version
+#
+# This script upgrades an existing PostgreSQL installation to a newer version.
+# It handles the data migration using pg_upgradecluster.
+#
+# Usage: yamc -h hostname -u root postgresql upgrade -e version=14
+
+set -e  # Exit on any error
+
+echo "===== Upgrading PostgreSQL ====="
+
+# Check if upgrade target version is specified
+if [ -z "$version" ]; then
+  echo "ERROR: Target version not specified."
+  echo "Please specify a target version with: -e version=X"
+  echo "Example: yamc -h hostname -u root -e version=14 postgresql upgrade"
+  exit 1
+fi
+
+echo "Target PostgreSQL version: $version"
+
+# Find current PostgreSQL version
+CURRENT_VERSION=$(psql --version | grep -oP 'psql \(PostgreSQL\) \K[0-9]+' || echo "")
+
+if [ -z "$CURRENT_VERSION" ]; then
+  echo "ERROR: PostgreSQL does not appear to be installed."
+  echo "Please install PostgreSQL first with: yamc -h hostname -u root postgresql"
+  exit 1
+fi
+
+echo "Current PostgreSQL version: $CURRENT_VERSION"
+
+# Validate versions
+if [ "$CURRENT_VERSION" = "$version" ]; then
+  echo "Current version is already $version. No upgrade needed."
+  exit 0
+fi
+
+if [ "$CURRENT_VERSION" -gt "$version" ]; then
+  echo "WARNING: Target version $version is older than current version $CURRENT_VERSION."
+  echo "Downgrading PostgreSQL is not supported and may cause data loss."
+  echo "Aborting operation."
+  exit 1
+fi
+
+# Install the target PostgreSQL version first
+echo "Adding PostgreSQL repository..."
+KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+REPO_URL="deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main"
+REPO_FILE="/etc/apt/sources.list.d/pgdg.list"
+GPG_FILE="/etc/apt/trusted.gpg.d/apt.postgresql.org.gpg"
+
+if [ ! -f "$GPG_FILE" ]; then
+  echo "Downloading PostgreSQL repository key..."
+  curl -s "$KEY_URL" | gpg --dearmor | tee "$GPG_FILE" >/dev/null
+fi
+
+if ! grep -q "$REPO_URL" "$REPO_FILE" 2>/dev/null; then
+  echo "Adding PostgreSQL repository..."
+  echo "$REPO_URL" | tee -a "$REPO_FILE"
+  apt-get update
+fi
+
+# Install postgresql-$version and postgresql-$version-contrib packages
+echo "Installing PostgreSQL $version packages..."
+DEBIAN_FRONTEND=noninteractive apt-get -q install -y \
+  postgresql-$version \
+  postgresql-contrib-$version \
+  postgresql-$CURRENT_VERSION-postgresql-$version
+
+# Ensure pg_upgradecluster is available
+echo "Installing PostgreSQL upgrade tools..."
+DEBIAN_FRONTEND=noninteractive apt-get -q install -y \
+  postgresql-common
+
+# Stop both PostgreSQL clusters (old and new)
+echo "Stopping PostgreSQL service..."
+systemctl stop postgresql
+
+# Perform the upgrade
+echo "Upgrading PostgreSQL from $CURRENT_VERSION to $version..."
+echo "This process may take some time depending on database size..."
+echo ""
+
+# Find clusters to upgrade
+CLUSTERS=$(pg_lsclusters | grep $CURRENT_VERSION | awk '{print $2}')
+
+if [ -z "$CLUSTERS" ]; then
+  echo "ERROR: No PostgreSQL $CURRENT_VERSION clusters found to upgrade."
+  exit 1
+fi
+
+# Upgrade each cluster
+for CLUSTER in $CLUSTERS; do
+  echo "Upgrading cluster $CLUSTER from PostgreSQL $CURRENT_VERSION to $version..."
+  pg_upgradecluster $CURRENT_VERSION $CLUSTER
+done
+
+# Start PostgreSQL service
+echo "Starting PostgreSQL service..."
+systemctl start postgresql
+
+# Verify upgrade success
+NEW_VERSION=$(psql --version | grep -oP 'psql \(PostgreSQL\) \K[0-9]+' || echo "")
+
+if [ "$NEW_VERSION" = "$version" ]; then
+  echo "PostgreSQL successfully upgraded to version $version."
+else
+  echo "WARNING: PostgreSQL upgrade validation failed."
+  echo "Current version reported as: $NEW_VERSION"
+  echo "Expected version: $version"
+  echo ""
+  echo "Please check PostgreSQL status manually:"
+  echo "  pg_lsclusters"
+  echo "  systemctl status postgresql"
+fi
+
+# Show cluster status
+echo ""
+echo "Current PostgreSQL cluster status:"
+pg_lsclusters
+
+echo ""
+echo "===== PostgreSQL Upgrade Complete ====="
+echo ""
+echo "IMPORTANT: After verifying the upgrade was successful, you may remove"
+echo "the old PostgreSQL $CURRENT_VERSION packages and data with:"
+echo "  apt-get remove postgresql-$CURRENT_VERSION"
+echo "  apt-get purge postgresql-$CURRENT_VERSION"
+echo ""
+echo "The old cluster has been renamed but is kept as a backup."
+exit 0

@@ -87,9 +87,9 @@ if [ ! -f /etc/termcap ] && [ -f "$MOD_DIR/termcap" ]; then
 fi
 
 # Set up daily backup cron job
-if [ -d /etc/cron.daily ] && [ -f "$MOD_DIR/setup.kback" ]; then
+if [ -d /etc/cron.daily ] && [ -f "$MOD_DIR/cron-kback.sh" ]; then
   echo "Setting up daily backup..."
-  install -m 755 "$MOD_DIR/setup.kback" /etc/cron.daily/kback
+  install -m 755 "$MOD_DIR/cron-kback.sh" /etc/cron.daily/kback
 fi
 
 # Note: The Makefile already installs the krc file to /usr/local/lib/krc

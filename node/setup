@@ -1,0 +1,70 @@
+#!/bin/bash
+# node/setup - Install and configure Node.js
+#
+# This script installs Node.js using the 'n' version manager,
+# allowing for specific version control.
+#
+# Usage: yamc -h hostname -u root node [-e version=18]
+
+set -e  # Exit on any error
+
+echo "===== Installing Node.js ====="
+
+# Get Node.js version (default to 18 if not specified)
+NODE_VERSION="${version:-18}"
+echo "Target Node.js version: $NODE_VERSION"
+
+# Check if Node.js is already installed at the requested version
+if command -v node >/dev/null 2>&1; then
+  CURRENT_VERSION=$(node --version | cut -f1 -d. | tr -d 'v')
+  echo "Found Node.js version: $CURRENT_VERSION"
+  
+  if [ "$CURRENT_VERSION" = "$NODE_VERSION" ]; then
+    echo "Node.js version $NODE_VERSION is already installed."
+    exit 0
+  else
+    echo "Node.js version $CURRENT_VERSION is installed, but version $NODE_VERSION was requested."
+    echo "Will update Node.js to the requested version."
+  fi
+else
+  echo "Node.js is not installed. Will install version $NODE_VERSION."
+fi
+
+# Install npm if not already installed
+if ! command -v npm >/dev/null 2>&1; then
+  echo "Installing npm package manager..."
+  apt-get update -q
+  apt-get install -y -q npm
+fi
+
+# Install 'n' node version manager if not already installed
+if ! command -v n >/dev/null 2>&1; then
+  echo "Installing 'n' Node.js version manager..."
+  npm install -g n
+fi
+
+# Remove existing Node.js installation (if any)
+echo "Removing any existing Node.js installation..."
+apt-get remove -y -q npm nodejs >/dev/null 2>&1 || true
+
+# Install requested Node.js version
+echo "Installing Node.js version $NODE_VERSION..."
+n $NODE_VERSION
+
+# Verify installation
+if command -v node >/dev/null 2>&1; then
+  INSTALLED_VERSION=$(node --version)
+  echo "Node.js $INSTALLED_VERSION has been successfully installed."
+  echo "npm version: $(npm --version)"
+else
+  echo "ERROR: Node.js installation failed."
+  exit 1
+fi
+
+echo "===== Node.js Installation Complete ====="
+echo ""
+echo "You can now use Node.js with:"
+echo "  node --version"
+echo "  npm --version"
+echo ""
+exit 0

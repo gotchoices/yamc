@@ -1,0 +1,60 @@
+#!/bin/bash
+# node/upgrade - Upgrade Node.js to a specified version
+#
+# This script upgrades an existing Node.js installation to a specified version
+# using the 'n' version manager.
+#
+# Usage: yamc -h hostname -u root node upgrade [-e version=18]
+
+set -e  # Exit on any error
+
+echo "===== Upgrading Node.js ====="
+
+# Get Node.js version (default to 18 if not specified)
+NODE_VERSION="${version:-18}"
+echo "Target Node.js version: $NODE_VERSION"
+
+# Check if Node.js is already installed
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: Node.js is not installed. Please install it first:"
+  echo "  yamc -h hostname -u root node"
+  exit 1
+fi
+
+# Get current Node.js version
+CURRENT_VERSION=$(node --version | tr -d 'v')
+CURRENT_MAJOR=$(echo $CURRENT_VERSION | cut -f1 -d.)
+echo "Current Node.js version: $CURRENT_VERSION (major: $CURRENT_MAJOR)"
+
+# Check if already at the requested version
+if [ "$CURRENT_MAJOR" = "$NODE_VERSION" ]; then
+  echo "Node.js is already at version $CURRENT_MAJOR."
+  echo "No upgrade needed."
+  exit 0
+fi
+
+# Check if 'n' is installed
+if ! command -v n >/dev/null 2>&1; then
+  echo "Installing 'n' Node.js version manager..."
+  npm install -g n
+fi
+
+# Perform the upgrade
+echo "Upgrading Node.js from version $CURRENT_VERSION to $NODE_VERSION..."
+n $NODE_VERSION
+
+# Verify installation
+if command -v node >/dev/null 2>&1; then
+  NEW_VERSION=$(node --version)
+  echo "Node.js has been successfully upgraded to $NEW_VERSION."
+  echo "npm version: $(npm --version)"
+else
+  echo "ERROR: Node.js upgrade failed."
+  exit 1
+fi
+
+echo "===== Node.js Upgrade Complete ====="
+echo ""
+echo "You are now using Node.js $NEW_VERSION"
+echo ""
+exit 0

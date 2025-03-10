@@ -1,0 +1,75 @@
+#!/bin/bash
+# mounter/setup - Install NFS mount script and desktop shortcut
+#
+# This script installs a utility for mounting NFS filesystems with a
+# desktop shortcut in the GUI environment.
+#
+# Usage: yamc -h hostname -u yourusername mounter remote=server:/share local=/mount/point
+# Example: yamc -h pi400 -u pi mounter remote=192.168.1.10:/data local=/home/pi/data
+
+set -e  # Exit on any error
+
+echo "===== Installing NFS Mounter Tool ====="
+
+# Validate required variables
+if [ -z "$REMOTE" ]; then
+  echo "ERROR: Remote NFS share not specified. Use 'remote=server:/path' parameter."
+  exit 1
+fi
+
+if [ -z "$LOCAL" ]; then
+  echo "ERROR: Local mount point not specified. Use 'local=/mount/path' parameter."
+  exit 1
+fi
+
+echo "NFS Share: $REMOTE"
+echo "Mount Point: $LOCAL"
+
+# Create mount point if it doesn't exist
+if [ ! -d "$LOCAL" ]; then
+  echo "Creating mount point directory: $LOCAL"
+  mkdir -p "$LOCAL"
+fi
+
+# Install mounter script with proper variables
+echo "Installing mounter script..."
+sed "s|^\(remote=\).*|\1$REMOTE|; s|^\(local=\).*|\1$LOCAL|" "$MOD_DIR/mounter.sh.template" > ~/mounter.sh
+chmod +x ~/mounter.sh
+echo "Mounter script installed to: $HOME/mounter.sh"
+
+# Install desktop shortcut
+if [ -d "$HOME/.local/share/applications" ]; then
+  echo "Installing desktop shortcut..."
+  
+  # Ensure directory exists
+  mkdir -p "$HOME/.local/share/applications"
+  
+  # Copy and customize desktop file
+  sed "s|Exec=.*|Exec=$HOME/mounter.sh|" "$MOD_DIR/mounter.desktop" > "$HOME/.local/share/applications/mounter.desktop"
+  chmod +x "$HOME/.local/share/applications/mounter.desktop"
+  
+  # Try to refresh desktop (works on LXDE, might not work on all desktop environments)
+  if command -v lxpanelctl >/dev/null 2>&1; then
+    echo "Refreshing desktop panel..."
+    DISPLAY=:0 lxpanelctl restart || true
+  fi
+  
+  echo "Desktop shortcut installed."
+else
+  echo "No desktop environment detected. Desktop shortcut not installed."
+fi
+
+# Verify that NFS client is installed
+if ! dpkg -l | grep -q "nfs-common"; then
+  echo "Installing NFS client packages..."
+  sudo apt-get update -q
+  sudo apt-get install -y nfs-common
+fi
+
+echo "===== NFS Mounter Installation Complete ====="
+echo ""
+echo "You can mount $REMOTE to $LOCAL by:"
+echo "1. Clicking the 'Mounter' icon in your applications menu"
+echo "2. Running ~/mounter.sh from the terminal"
+echo ""
+exit 0

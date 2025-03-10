@@ -1,0 +1,146 @@
+#!/bin/bash
+# pg-mychips/setup - Configure PostgreSQL for MyCHIPs
+#
+# This script extends the standard PostgreSQL installation with
+# MyCHIPs-specific configuration and extensions.
+#
+# Usage: yamc -h hostname -u root pg-mychips [-e version=14] [-e mode=dev|prod]
+
+set -e  # Exit on any error
+
+echo "===== Configuring PostgreSQL for MyCHIPs ====="
+
+# Check if PostgreSQL is installed
+if ! command -v psql >/dev/null 2>&1; then
+  echo "ERROR: PostgreSQL is not installed."
+  echo "Please install PostgreSQL first with: yamc -h hostname -u root postgresql"
+  exit 1
+fi
+
+# Set PostgreSQL version (default or from parameter)
+if [ -z "$version" ]; then
+  PG_VER=$(psql --version | grep -oP 'psql \(PostgreSQL\) \K[0-9]+' || echo "13")
+else
+  PG_VER="$version"
+fi
+
+echo "Using PostgreSQL version: $PG_VER"
+
+# Set mode (dev or prod)
+MODE="${mode:-dev}"
+if [ "$MODE" != "dev" ] && [ "$MODE" != "prod" ]; then
+  echo "WARNING: Invalid mode specified. Using default 'dev' mode."
+  MODE="dev"
+fi
+
+echo "Using mode: $MODE"
+
+# Check for required PostgreSQL extensions
+echo "Checking for required PostgreSQL extensions..."
+
+# Ensure that pltcl and plpython3u are installed
+echo "Installing required PostgreSQL extensions..."
+if ! dpkg -l | grep -q "postgresql-pltcl-$PG_VER"; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -q
+  DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-pltcl-$PG_VER
+fi
+
+if ! dpkg -l | grep -q "postgresql-plpython3-$PG_VER"; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -q
+  DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-plpython3-$PG_VER
+fi
+
+# Also install tcl-dev and tcllib for additional functionality
+if ! dpkg -l | grep -q "tcl-dev"; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -q
+  DEBIAN_FRONTEND=noninteractive apt-get install -y tcl-dev tcllib
+fi
+
+# Create extensions within PostgreSQL
+echo "Creating PostgreSQL extensions..."
+su -l postgres -c "psql -c 'CREATE EXTENSION IF NOT EXISTS pltcl;'" || echo "Note: pltcl extension already exists"
+su -l postgres -c "psql -c 'CREATE EXTENSION IF NOT EXISTS plpython3u;'" || echo "Note: plpython3u extension already exists"
+
+# Configure host access in pg_hba.conf
+PG_CONF_DIR="/etc/postgresql/$PG_VER/main"
+PG_HBA_FILE="$PG_CONF_DIR/pg_hba.conf"
+
+echo "Configuring PostgreSQL host access for MyCHIPs..."
+
+# Create a backup of the original pg_hba.conf if none exists
+if [ ! -f "$PG_HBA_FILE.org" ]; then
+  echo "Creating backup of original pg_hba.conf..."
+  cp "$PG_HBA_FILE" "$PG_HBA_FILE.org"
+fi
+
+# Check if we need to update the pg_hba.conf file
+if grep -q "mychips" "$PG_HBA_FILE"; then
+  echo "Host access appears to be already configured for MyCHIPs."
+else
+  echo "Configuring PostgreSQL host access for MyCHIPs..."
+  
+  # Remove default host access if present
+  if grep -E '^(local|host).*all.*all' "$PG_HBA_FILE" > /dev/null; then
+    echo "Removing default host access..."
+    cp "$PG_HBA_FILE" "$PG_HBA_FILE.tmp"
+    cat "$PG_HBA_FILE.tmp" | sed -e "s/^\(local\|host\).*all.*all.*$/#&/g" > "$PG_HBA_FILE"
+    rm "$PG_HBA_FILE.tmp"
+  fi
+  
+  # Add MyCHIPs-specific configuration
+  if [ "$MODE" = "prod" ]; then
+    # Production mode with SSL
+    cat >> "$PG_HBA_FILE" << 'EOF'
+#MyCHIPs SSL mode
+local all admin peer
+host  all      admin      192.168.0.0/16  md5
+host  mychips  +mychips   192.168.0.0/16  md5
+EOF
+  else
+    # Development mode
+    cat >> "$PG_HBA_FILE" << 'EOF'
+#MyCHIPs development mode; insecure!
+local  all      admin      peer
+local  mychips  +mychips   trust
+host   all      admin      127.0.0.1/32   trust
+host   mychips  +mychips   127.0.0.1/32   trust
+EOF
+  fi
+  
+  # Reload PostgreSQL to apply changes
+  systemctl reload postgresql
+  echo "PostgreSQL host access configured for MyCHIPs."
+fi
+
+# Create admin user if needed
+ADMIN_EXISTS=$(su -l postgres -c "psql -A -t -c \"SELECT 1 FROM pg_roles WHERE rolname='admin'\"" 2>/dev/null || echo "0")
+
+if [ "$ADMIN_EXISTS" = "1" ]; then
+  echo "Admin user already exists."
+else
+  echo "Creating admin database user..."
+  su -l postgres -c "psql -c \"CREATE ROLE admin WITH LOGIN CREATEDB SUPERUSER CREATEROLE\""
+  echo "Admin user created successfully."
+fi
+
+# Fix the IPv6 localhost issue which can cause connection problems
+echo "Checking /etc/hosts configuration..."
+if grep -q "^::1.* localhost" /etc/hosts; then
+  echo "Fixing IPv6 localhost configuration in /etc/hosts..."
+  cp /etc/hosts /etc/hosts.mychips.bak
+  cat /etc/hosts | sed -e 's/^::1.* localhost/#&/' > /etc/hosts.new
+  echo '::1 ip6-localhost ip6-loopback' >> /etc/hosts.new
+  mv /etc/hosts.new /etc/hosts
+  echo "/etc/hosts configuration updated."
+fi
+
+echo "===== PostgreSQL Configuration for MyCHIPs Complete ====="
+echo "PostgreSQL is now configured for MyCHIPs using $MODE mode."
+echo ""
+echo "You can connect to PostgreSQL as the admin user with:"
+echo "  sudo -u postgres psql"
+echo ""
+echo "To create a MyCHIPs database, run:"
+echo "  createdb -U admin mychips"
+echo ""
+exit 0

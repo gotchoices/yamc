@@ -1,0 +1,20 @@
+#!/bin/bash
+# mongo/setup.loc - Prepare for MongoDB installation
+#
+# This script validates the MongoDB version parameter.
+
+# Check for version parameter
+if [ -n "$version" ]; then
+  # Validate that the version format is correct (major.minor)
+  if [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "Using MongoDB version: $version"
+  else
+    echo "WARNING: Invalid version format '$version'. Version must be in format 'major.minor' (e.g., 7.0)."
+    echo "Using default version 7.0 instead."
+    
+    # Reset the version parameter to the default
+    echo "version=\"7.0\"" >> "$MOD_TMP/env"
+  fi
+else
+  echo "No version specified. Using default MongoDB version: 7.0"
+fi

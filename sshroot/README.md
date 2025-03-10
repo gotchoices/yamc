@@ -1,4 +1,4 @@
-# sshroot Module
+# sshroot Module (DEPRECATED in favor of ssh2user)
 
 This module installs the current user's SSH public key for root access on a remote machine.
 

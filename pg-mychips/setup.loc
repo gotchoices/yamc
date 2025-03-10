@@ -1,0 +1,27 @@
+#!/bin/bash
+# pg-mychips/setup.loc - Prepare for MyCHIPs PostgreSQL configuration
+#
+# This script processes parameters for MyCHIPs PostgreSQL configuration.
+
+# Check for PostgreSQL version parameter
+if [ -n "$version" ]; then
+  echo "Using PostgreSQL version: $version"
+else
+  echo "Using default PostgreSQL version (detected on remote system)"
+fi
+
+# Check for mode parameter
+if [ -n "$mode" ]; then
+  if [ "$mode" = "dev" ] || [ "$mode" = "prod" ]; then
+    echo "Using MyCHIPs $mode mode"
+  else
+    echo "WARNING: Invalid mode '$mode'. Valid options are 'dev' or 'prod'. Using 'dev' mode."
+  fi
+else
+  echo "Using default MyCHIPs mode: dev"
+fi
+
+# No need to add parameters to the environment since they're
+# already passed by YAMC through the -e flag
+
+echo "Parameters for MyCHIPs PostgreSQL configuration processed."

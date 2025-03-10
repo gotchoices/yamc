@@ -1,0 +1,51 @@
+#!/bin/bash
+# Mounter script for NFS shares
+# Automatically configured by YAMC mounter module
+
+# NFS share configuration
+remote=server:/path
+local=/mount/point
+
+echo "===== NFS Mount Helper ====="
+echo "Attempting to mount NFS share..."
+echo "Remote: $remote"
+echo "Local: $local"
+echo "Time: $(date)"
+
+# Check if already mounted
+if mount | grep -q "$local"; then
+  echo "This location is already mounted. Unmounting first..."
+  sudo umount "$local" || {
+    echo "Error: Failed to unmount. Please unmount manually if needed."
+    exit 1
+  }
+  echo "Successfully unmounted."
+  sleep 1
+fi
+
+# Check if mount point exists
+if [ ! -d "$local" ]; then
+  echo "Creating mount point directory: $local"
+  mkdir -p "$local"
+fi
+
+# Attempt to mount
+echo "Mounting NFS share..."
+sudo mount -t nfs "$remote" "$local"
+
+# Check if mount was successful
+if mount | grep -q "$local"; then
+  echo "Mount successful!"
+  echo "Files in $local:"
+  ls -la "$local" 2>/dev/null || echo "Could not list directory contents."
+else
+  echo "Mount failed. Please check that:"
+  echo "- The NFS server is reachable"
+  echo "- The share exists on the server"
+  echo "- You have permission to mount this share"
+fi
+
+# Keep terminal open for a moment so user can see the output
+echo
+echo "This window will close in 10 seconds..."
+sleep 10

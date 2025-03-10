@@ -1,0 +1,27 @@
+#!/bin/bash
+# user/setup.loc - Prepare for user creation
+#
+# This script validates parameters for creating a system user.
+
+# Check for custom username parameter
+if [ -n "$username" ]; then
+  # Validate username to ensure it follows Unix conventions
+  if [[ "$username" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+    echo "Using custom username: $username"
+  else
+    echo "WARNING: Invalid username format '$username'. Username must start with a letter or underscore, and contain only lowercase letters, numbers, underscores, or hyphens."
+    echo "Using default username 'admin' instead."
+    
+    # Reset the username parameter to the default
+    echo "username=\"admin\"" >> "$MOD_TMP/env"
+  fi
+else
+  echo "Using default username: admin"
+fi
+
+# Process description parameter (if provided)
+if [ -n "$description" ]; then
+  echo "Using custom description: $description"
+else
+  echo "Using default description: System User"
+fi

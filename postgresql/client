@@ -1,0 +1,58 @@
+#!/bin/bash
+# postgresql/client - Install PostgreSQL client packages only
+#
+# This script installs only the PostgreSQL client packages needed
+# to connect to a PostgreSQL server.
+#
+# Usage: yamc -h hostname -u root postgresql:client [version]
+
+set -e  # Exit on any error
+
+echo "===== Installing PostgreSQL Client Packages ====="
+
+# Set PostgreSQL version (default or from parameter)
+PG_VER="${PG_VERSION:-13}"
+echo "Using PostgreSQL version: $PG_VER"
+
+# Add PostgreSQL repository (if needed)
+echo "Setting up PostgreSQL repository..."
+KEY_URL="https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+REPO_URL="deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main"
+REPO_FILE="/etc/apt/sources.list.d/pgdg.list"
+GPG_FILE="/etc/apt/trusted.gpg.d/apt.postgresql.org.gpg"
+
+if [ ! -f "$GPG_FILE" ]; then
+  echo "Downloading PostgreSQL repository key..."
+  curl -s "$KEY_URL" | gpg --dearmor | tee "$GPG_FILE" >/dev/null
+fi
+
+if ! grep -q "$REPO_URL" "$REPO_FILE" 2>/dev/null; then
+  echo "Adding PostgreSQL repository..."
+  echo "$REPO_URL" | tee -a "$REPO_FILE"
+  apt-get update
+fi
+
+# Check if client is already installed
+if command -v psql >/dev/null 2>&1; then
+  pg_version=$(psql --version)
+  echo "PostgreSQL client is already installed: $pg_version"
+else
+  echo "Installing PostgreSQL client packages..."
+  DEBIAN_FRONTEND=noninteractive apt-get -q install -y \
+    postgresql-client-${PG_VER} \
+    libpq-dev
+  
+  echo "PostgreSQL client installed successfully."
+fi
+
+# Verify installation
+if ! command -v psql >/dev/null 2>&1; then
+  echo "ERROR: PostgreSQL client was not installed correctly."
+  exit 1
+fi
+
+pg_version=$(psql --version)
+echo "===== PostgreSQL Client Installation Complete ====="
+echo "Version: $pg_version"
+echo ""
+exit 0

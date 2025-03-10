@@ -1,0 +1,17 @@
+#!/bin/bash
+# postgresql/setup.loc - Prepare for PostgreSQL installation
+#
+# This script processes parameters for PostgreSQL installation.
+
+# Check for PostgreSQL version from -e version=X parameter
+if [ -n "$version" ]; then
+  echo "Setting PostgreSQL version to: $version"
+  echo "PG_VERSION=\"$version\"" >> "$MOD_TMP/env"
+else
+  echo "Using default PostgreSQL version (13)"
+fi
+
+# Process other parameters as needed in the future
+# (data_dir, locale, etc.)
+
+echo "PostgreSQL parameters processed."
