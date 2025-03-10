@@ -1,0 +1,83 @@
+# nanorc-k-style - Keymap for nano to match k editor (based on JOE)
+# To use: copy to ~/.nanorc
+
+# Priority 1: Cursor Motion
+# Up (matches k: ^K)
+bind ^K up main
+# Down (matches k: ^D)
+bind ^D down main
+# Left (matches k: ^J)
+bind ^J left main
+# Right (matches k: ^F)
+bind ^F right main
+# Previous word (matches k: ^N)
+bind ^N prevword main
+# Next word (matches k: ^V)
+bind ^V nextword main
+# Beginning of line (matches k: ^U for bol)
+bind ^U home main
+# End of line (matches k: ^R for eol)
+bind ^R end main
+# Beginning of file (matches k: ^O for bof)
+bind ^O firstline main
+# End of file (matches k: ^W for eof)
+bind ^W lastline main
+# Page up (matches k: ^Y for pgrev)
+bind ^Y pageup main
+# Page down (matches k: ^T for pgfwd)
+bind ^T pagedown main
+
+# Priority 2: File Operations
+# Multi-key sequences like ^P^P not supported in nano
+# Save file (alternative for k: ^P^P)
+bind ^S savefile main
+# Save and exit (alternative for k: ^P^O)
+bind ^Q exit all
+# Edit a file (alternative for k: ^P^G)
+bind M-O insert main
+
+# Priority 3: Search Operations
+# Find next (matches k: ^X)
+bind ^X whereis main
+# Find first (alternative for k: ^[^X)
+bind M-X whereis main
+# Find previous (no direct k equivalent)
+bind M-P findprevious main
+
+# Priority 4: Cut/Copy/Paste
+# Set mark (matches k: ^Z)
+bind ^Z mark main
+# Cut marked text (alternative for k: ^L^Z)
+bind M-Z cut main
+# Copy marked text (alternative for k: ^P^Z)
+bind M-C copy main
+# Paste/yank text (matches k: ^B - using paste instead of uncut which doesn't exist)
+bind ^B paste main
+# Delete to end of line (using cut for cuttoend which doesn't exist)
+bind ^E cut main
+
+# Priority 5: Window Operations (limited in nano)
+# Help (similar to k: ^_)
+bind ^_ help all
+
+# Other useful mappings
+# Delete char (matches k: ^G)
+bind ^G delete main
+# Backspace (matches k: ^H)
+bind ^H backspace main
+# Redo (similar to k's ^A repeat)
+bind ^A redo main
+# Undo (alternative for k: ^P^B)
+bind M-U undo main
+
+# Set some useful options
+# No wordwrap by default
+set nowrap
+# Auto-indent
+set autoindent
+# Tab size 4
+set tabsize 4
+# No help bar at bottom
+set nohelp
+# Constant status bar
+set constantshow
