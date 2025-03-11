@@ -40,20 +40,34 @@ echo "Checking for required PostgreSQL extensions..."
 
 # Ensure that pltcl and plpython3u are installed
 echo "Installing required PostgreSQL extensions..."
+
+# Run apt-get update once and check for errors
+if ! DEBIAN_FRONTEND=noninteractive apt-get update -q; then
+  echo "ERROR: apt-get update failed. There may be issues with package repositories." >&2
+  echo "Check /etc/apt/sources.list.d/ for problematic repository files." >&2
+  exit 1
+fi
+
 if ! dpkg -l | grep -q "postgresql-pltcl-$PG_VER"; then
-  DEBIAN_FRONTEND=noninteractive apt-get update -q
-  DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-pltcl-$PG_VER
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-pltcl-$PG_VER; then
+    echo "ERROR: Failed to install postgresql-pltcl-$PG_VER" >&2
+    exit 1
+  fi
 fi
 
 if ! dpkg -l | grep -q "postgresql-plpython3-$PG_VER"; then
-  DEBIAN_FRONTEND=noninteractive apt-get update -q
-  DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-plpython3-$PG_VER
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-plpython3-$PG_VER; then
+    echo "ERROR: Failed to install postgresql-plpython3-$PG_VER" >&2
+    exit 1
+  fi
 fi
 
 # Also install tcl-dev and tcllib for additional functionality
 if ! dpkg -l | grep -q "tcl-dev"; then
-  DEBIAN_FRONTEND=noninteractive apt-get update -q
-  DEBIAN_FRONTEND=noninteractive apt-get install -y tcl-dev tcllib
+  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y tcl-dev tcllib; then
+    echo "ERROR: Failed to install tcl-dev and tcllib" >&2
+    exit 1
+  fi
 fi
 
 # Create extensions within PostgreSQL
