@@ -57,6 +57,28 @@ curl -fsSL "https://pgp.mongodb.com/server-$MONGO_VERSION.asc" | \
 UBUNTU_VERSION=$(lsb_release -sc)
 echo "Detected Ubuntu version: $UBUNTU_VERSION"
 
+# Define MongoDB repository URL
+REPO_URL="https://repo.mongodb.org/apt/ubuntu/$UBUNTU_VERSION/mongodb-org/$MONGO_VERSION"
+
+# Check if the repository exists for this Ubuntu version
+if ! curl -s --head "$REPO_URL" | grep -q "200 OK"; then
+  echo "MongoDB repository for Ubuntu $UBUNTU_VERSION does not exist."
+  
+  # Try to use the latest supported Ubuntu version (fallback to jammy/22.04)
+  echo "Trying Ubuntu Jammy (22.04) repository instead..."
+  UBUNTU_VERSION="jammy"
+  
+  # Verify the fallback repository exists
+  REPO_URL="https://repo.mongodb.org/apt/ubuntu/$UBUNTU_VERSION/mongodb-org/$MONGO_VERSION"
+  if ! curl -s --head "$REPO_URL" | grep -q "200 OK"; then
+    echo "ERROR: MongoDB repository for Ubuntu Jammy (22.04) also does not exist."
+    echo "Please check available MongoDB versions and Ubuntu compatibility."
+    exit 1
+  fi
+  
+  echo "Using repository for Ubuntu Jammy (22.04) instead."
+fi
+
 # Add MongoDB repository
 echo "Adding MongoDB repository..."
 echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-$MONGO_VERSION.gpg ] https://repo.mongodb.org/apt/ubuntu $UBUNTU_VERSION/mongodb-org/$MONGO_VERSION multiverse" | \
