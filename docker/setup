@@ -1,0 +1,172 @@
+#!/bin/bash
+# docker/setup - Install and configure Docker on remote system
+#
+# This script installs and configures Docker. It can be called with
+# optional arguments for version and users to add to the docker group.
+#
+# Usage: yamc -h hostname -u root docker [version] [user1 user2 ...]
+# Example: yamc -h server -u root docker latest admin developer
+
+set -e  # Exit on any error
+
+echo "===== Installing Docker Engine ====="
+
+# Function to check if a command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Function to get Ubuntu version codename
+get_ubuntu_codename() {
+  if command_exists lsb_release; then
+    echo "$(lsb_release -cs)"
+  else
+    echo "ERROR: lsb_release not found. Cannot determine Ubuntu version."
+    exit 1
+  fi
+}
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Check if Docker is already installed
+DOCKER_ALREADY_INSTALLED=false
+if command_exists docker; then
+  CURRENT_VERSION=$(docker --version | cut -d ' ' -f3 | tr -d ',')
+  echo "Docker is already installed (version $CURRENT_VERSION)"
+  
+  if [ -z "$DOCKER_VERSION" ]; then
+    echo "No specific version requested, keeping current installation."
+    DOCKER_ALREADY_INSTALLED=true
+  elif [[ "$CURRENT_VERSION" == *"$DOCKER_VERSION"* ]]; then
+    echo "Requested Docker version $DOCKER_VERSION is already installed."
+    DOCKER_ALREADY_INSTALLED=true
+  else
+    echo "Will attempt to update Docker from $CURRENT_VERSION to $DOCKER_VERSION"
+  fi
+fi
+
+if [ "$DOCKER_ALREADY_INSTALLED" = false ]; then
+  echo "Proceeding with Docker installation..."
+  
+  # Update package list
+  echo "Updating package lists..."
+  apt-get update -q
+  
+  # Install required dependencies
+  echo "Installing prerequisites..."
+  apt-get install -y ca-certificates curl gnupg lsb-release
+  
+  # Check if repository is already added
+  REPO_FILE="/etc/apt/sources.list.d/docker.list"
+  if [ ! -f "$REPO_FILE" ]; then
+    echo "Adding Docker's official GPG key..."
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    
+    echo "Setting up the Docker repository..."
+    UBUNTU_CODENAME=$(get_ubuntu_codename)
+    echo "Detected Ubuntu codename: $UBUNTU_CODENAME"
+    
+    echo \
+      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+      $UBUNTU_CODENAME stable" | tee "$REPO_FILE" > /dev/null
+    
+    # Update package list again
+    echo "Updating package lists with new repository..."
+    apt-get update -q
+  else
+    echo "Docker repository already configured."
+  fi
+  
+  # Install Docker
+  echo "Installing Docker packages..."
+  if [ -z "$DOCKER_VERSION" ]; then
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  else
+    apt-get install -y docker-ce=$DOCKER_VERSION docker-ce-cli=$DOCKER_VERSION containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
+  
+  # Verify installation
+  if command_exists docker; then
+    echo "Docker installed successfully: $(docker --version)"
+  else
+    echo "ERROR: Docker installation failed! Command 'docker' not found."
+    exit 1
+  fi
+fi
+
+# Configure Docker daemon if custom configuration is provided
+if [ "$DOCKER_CONFIG" != "'{}'" ] && [ "$DOCKER_CONFIG" != "{}" ]; then
+  echo "Configuring Docker daemon with custom settings..."
+  
+  # Create directory if it doesn't exist
+  mkdir -p /etc/docker
+  
+  # Backup existing config if present
+  if [ -f /etc/docker/daemon.json ]; then
+    cp /etc/docker/daemon.json /etc/docker/daemon.json.bak
+    echo "Backed up existing daemon.json to daemon.json.bak"
+  fi
+  
+  # Write new config
+  echo $DOCKER_CONFIG > /etc/docker/daemon.json
+  echo "Written new configuration to /etc/docker/daemon.json"
+  
+  # Restart Docker to apply changes
+  echo "Restarting Docker service to apply configuration..."
+  systemctl restart docker
+  
+  # Verify Docker service is running
+  if systemctl is-active --quiet docker; then
+    echo "Docker service restarted successfully"
+  else
+    echo "ERROR: Docker service failed to start with new configuration!"
+    echo "Reverting to original configuration..."
+    if [ -f /etc/docker/daemon.json.bak ]; then
+      mv /etc/docker/daemon.json.bak /etc/docker/daemon.json
+      systemctl restart docker
+    fi
+    exit 1
+  fi
+fi
+
+# Add specified users to docker group if requested
+if [ ! -z "$DOCKER_USERS" ]; then
+  echo "Adding users to docker group: $DOCKER_USERS"
+  
+  # Ensure docker group exists
+  if ! getent group docker > /dev/null; then
+    echo "Creating docker group..."
+    groupadd docker
+  fi
+  
+  # Add each user to the docker group
+  for user in $DOCKER_USERS; do
+    if id "$user" &>/dev/null; then
+      usermod -aG docker "$user"
+      echo "Added user $user to docker group"
+    else
+      echo "WARNING: User $user does not exist, skipping"
+    fi
+  done
+  
+  echo "Users have been added to the docker group."
+  echo "Note: Users will need to log out and back in for this to take effect."
+fi
+
+# Print status summary
+echo "==== Docker Installation Summary ===="
+echo "Docker version: $(docker --version)"
+echo "Docker Compose version: $(docker compose version)"
+echo "Docker service: $(systemctl is-active docker)"
+echo "Docker enabled at boot: $(systemctl is-enabled docker)"
+echo "Docker users: $(getent group docker | cut -d: -f4)"
+echo "===================================="
+
+echo "Docker installation and configuration completed successfully."
+exit 0

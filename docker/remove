@@ -1,0 +1,196 @@
+#!/bin/bash
+# docker/remove - Remove Docker from remote system
+#
+# This script removes Docker and cleans up associated data.
+# 
+# Usage: yamc -h hostname -u root docker remove [keep_data]
+# Example: yamc -h server -u root docker remove true
+
+set -e  # Exit on any error
+
+echo "===== Removing Docker Engine ====="
+
+# Function to check if a command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Check if Docker is installed
+if ! command_exists docker; then
+  echo "Docker is not installed. Nothing to remove."
+  exit 0
+fi
+
+# Get Docker version for reporting
+DOCKER_VERSION=$(docker --version | cut -d ' ' -f3 | tr -d ',')
+echo "Found Docker version: $DOCKER_VERSION"
+
+# Check if we should keep data
+KEEP_DATA="${KEEP_DATA:-false}"
+if [ "$KEEP_DATA" = "true" ]; then
+  echo "Will remove Docker packages but preserve data and images."
+else
+  echo "Will completely remove Docker, including all containers, images, and data."
+  
+  # Show warning and confirmation delay
+  echo "WARNING: This will delete all Docker containers, images, volumes, and configuration!"
+  echo "Press Ctrl+C within 10 seconds to abort..."
+  sleep 10
+fi
+
+# List what will be removed
+echo "Checking for Docker components to remove..."
+
+# Check for running containers
+RUNNING_CONTAINERS=$(docker ps -q 2>/dev/null || echo "")
+if [ ! -z "$RUNNING_CONTAINERS" ]; then
+  echo "Found running containers that will be stopped:"
+  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+fi
+
+# Check for all containers (including stopped)
+ALL_CONTAINERS=$(docker ps -a -q 2>/dev/null || echo "")
+if [ ! -z "$ALL_CONTAINERS" ]; then
+  CONTAINER_COUNT=$(echo "$ALL_CONTAINERS" | wc -l)
+  echo "Found $CONTAINER_COUNT containers (running and stopped) that will be removed."
+fi
+
+# Check for images
+IMAGE_COUNT=$(docker images -q 2>/dev/null | wc -l)
+if [ "$IMAGE_COUNT" -gt 0 ]; then
+  echo "Found $IMAGE_COUNT Docker images that will be removed."
+fi
+
+# Check for volumes
+if command_exists docker; then
+  VOLUME_COUNT=$(docker volume ls -q 2>/dev/null | wc -l)
+  if [ "$VOLUME_COUNT" -gt 0 ]; then
+    echo "Found $VOLUME_COUNT Docker volumes that will be removed."
+  fi
+fi
+
+# Create backup of Docker configuration
+if [ "$KEEP_DATA" = "false" ]; then
+  echo "Creating backup of Docker configuration before removal..."
+  BACKUP_DIR="/root/docker-backup-before-removal-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p $BACKUP_DIR
+  
+  # Backup important Docker files
+  if [ -f /etc/docker/daemon.json ]; then
+    cp /etc/docker/daemon.json $BACKUP_DIR/
+    echo "Backed up daemon.json to $BACKUP_DIR/"
+  fi
+  
+  # List running containers for reference
+  if docker ps -q | grep -q .; then
+    echo "Saving list of running containers for reference..."
+    docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" > $BACKUP_DIR/running-containers.txt
+  fi
+  
+  # Save list of all containers
+  if [ ! -z "$ALL_CONTAINERS" ]; then
+    echo "Saving list of all containers for reference..."
+    docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" > $BACKUP_DIR/all-containers.txt
+  fi
+  
+  # Save list of images
+  if [ "$IMAGE_COUNT" -gt 0 ]; then
+    echo "Saving list of all images for reference..."
+    docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.ID}}" > $BACKUP_DIR/all-images.txt
+  fi
+  
+  # Save list of volumes
+  if [ "$VOLUME_COUNT" -gt 0 ]; then
+    echo "Saving list of all volumes for reference..."
+    docker volume ls > $BACKUP_DIR/all-volumes.txt
+  fi
+  
+  echo "Backup saved to: $BACKUP_DIR"
+fi
+
+# Stop and remove containers if any exist and we're not keeping data
+if [ "$KEEP_DATA" = "false" ] && [ ! -z "$ALL_CONTAINERS" ]; then
+  echo "Stopping all running containers..."
+  docker stop $(docker ps -q) 2>/dev/null || true
+  
+  echo "Removing all containers..."
+  docker rm -f $(docker ps -a -q) 2>/dev/null || true
+fi
+
+# Remove all Docker images if we're not keeping data
+if [ "$KEEP_DATA" = "false" ] && [ "$IMAGE_COUNT" -gt 0 ]; then
+  echo "Removing all Docker images..."
+  docker rmi -f $(docker images -q) 2>/dev/null || true
+fi
+
+# Remove all Docker volumes if we're not keeping data
+if [ "$KEEP_DATA" = "false" ] && [ "$VOLUME_COUNT" -gt 0 ]; then
+  echo "Removing all Docker volumes..."
+  docker volume rm $(docker volume ls -q) 2>/dev/null || true
+fi
+
+# Stop Docker service
+echo "Stopping Docker service..."
+systemctl stop docker || true
+systemctl disable docker || true
+
+# Remove Docker packages
+echo "Removing Docker packages..."
+apt-get remove -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || true
+
+# Clean up remaining files
+if [ "$KEEP_DATA" = "false" ]; then
+  echo "Removing Docker data directories..."
+  
+  # Remove Docker configuration directory
+  rm -rf /etc/docker
+  
+  # Remove Docker data directory
+  rm -rf /var/lib/docker
+  
+  # Remove Docker runtime directory
+  rm -rf /var/run/docker
+  
+  # Remove containerd data
+  rm -rf /var/lib/containerd
+  
+  # Remove Docker apt repository
+  rm -f /etc/apt/sources.list.d/docker.list
+  rm -f /etc/apt/keyrings/docker.gpg
+  rm -f /etc/apt/keyrings/docker.asc
+  
+  # Update package lists after removing repository
+  apt-get update -q
+  
+  echo "Purging remaining Docker packages..."
+  apt-get autoremove -y
+  apt-get purge -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || true
+fi
+
+# Check to make sure Docker is gone
+if command_exists docker; then
+  echo "WARNING: Docker command still exists after removal. Some components might remain on the system."
+else
+  echo "Docker has been successfully removed from the system."
+fi
+
+# Print removal summary
+echo "==== Docker Removal Summary ===="
+echo "Removed Docker version: $DOCKER_VERSION"
+echo "Data preservation: $KEEP_DATA"
+if [ "$KEEP_DATA" = "false" ]; then
+  echo "Backup created: $BACKUP_DIR"
+  echo "Containers removed: $CONTAINER_COUNT"
+  echo "Images removed: $IMAGE_COUNT"
+  echo "Volumes removed: $VOLUME_COUNT"
+fi
+echo "===================================="
+
+echo "Docker removal completed."
+exit 0

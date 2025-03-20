@@ -1,0 +1,135 @@
+#!/bin/bash
+# docker/upgrade - Upgrade Docker on remote system
+#
+# This script upgrades an existing Docker installation to a newer version.
+# 
+# Usage: yamc -h hostname -u root docker upgrade [version]
+# Example: yamc -h server -u root docker upgrade latest
+
+set -e  # Exit on any error
+
+echo "===== Upgrading Docker Engine ====="
+
+# Function to check if a command exists
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Check if Docker is installed
+if ! command_exists docker; then
+  echo "ERROR: Docker is not installed. Please run the setup module first."
+  echo "Use: yamc -h $tgt_host -u root docker"
+  exit 1
+fi
+
+# Get current version
+CURRENT_VERSION=$(docker --version | cut -d ' ' -f3 | tr -d ',')
+echo "Current Docker version: $CURRENT_VERSION"
+
+# If no target version is specified, use latest
+if [ -z "$TARGET_VERSION" ]; then
+  echo "No specific version requested, will upgrade to latest available version"
+else
+  echo "Target Docker version for upgrade: $TARGET_VERSION"
+fi
+
+# Backup Docker data
+echo "Creating backup of Docker configuration..."
+BACKUP_DIR="/root/docker-backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p $BACKUP_DIR
+
+# Backup daemon.json if it exists
+if [ -f /etc/docker/daemon.json ]; then
+  cp /etc/docker/daemon.json $BACKUP_DIR/
+  echo "Backed up daemon.json to $BACKUP_DIR/"
+fi
+
+# List running containers for reference
+if docker ps -q | grep -q .; then
+  echo "Currently running containers (for reference):"
+  docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}" > $BACKUP_DIR/running-containers.txt
+  cat $BACKUP_DIR/running-containers.txt
+else
+  echo "No running containers found."
+fi
+
+# Update package list
+echo "Updating package lists..."
+apt-get update -q
+
+# Check available versions
+if [ -z "$TARGET_VERSION" ]; then
+  AVAILABLE_VERSION=$(apt-cache policy docker-ce | grep Candidate | awk '{print $2}')
+  echo "Latest available version: $AVAILABLE_VERSION"
+  
+  if [ "$AVAILABLE_VERSION" = "$CURRENT_VERSION" ]; then
+    echo "Docker is already at the latest version ($CURRENT_VERSION)."
+    echo "No upgrade needed."
+    exit 0
+  fi
+else
+  # Check if specified version exists
+  if ! apt-cache madison docker-ce | grep -q "$TARGET_VERSION"; then
+    echo "ERROR: Requested version $TARGET_VERSION not found in repository."
+    echo "Available versions:"
+    apt-cache madison docker-ce | awk '{ print $3 }'
+    exit 1
+  fi
+fi
+
+# Stop running containers if any
+RUNNING_CONTAINERS=$(docker ps -q)
+if [ ! -z "$RUNNING_CONTAINERS" ]; then
+  echo "Warning: Running containers will be stopped for the upgrade."
+  echo "Press Ctrl+C within 10 seconds to abort..."
+  sleep 10
+  
+  echo "Stopping all running containers..."
+  docker stop $(docker ps -q)
+fi
+
+# Stop Docker service
+echo "Stopping Docker service..."
+systemctl stop docker
+
+# Perform the upgrade
+echo "Upgrading Docker packages..."
+if [ -z "$TARGET_VERSION" ]; then
+  apt-get install -y --only-upgrade docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+else
+  apt-get install -y docker-ce=$TARGET_VERSION docker-ce-cli=$TARGET_VERSION containerd.io docker-buildx-plugin docker-compose-plugin
+fi
+
+# Restart Docker service
+echo "Starting Docker service..."
+systemctl start docker
+systemctl status docker --no-pager
+
+# Verify upgrade
+NEW_VERSION=$(docker --version | cut -d ' ' -f3 | tr -d ',')
+echo "Upgraded Docker from version $CURRENT_VERSION to $NEW_VERSION"
+
+# Restart containers if they were running before
+if [ ! -z "$RUNNING_CONTAINERS" ]; then
+  echo "Restarting containers that were running before upgrade..."
+  cat $BACKUP_DIR/running-containers.txt
+  echo "Note: For safety, containers are NOT automatically restarted."
+  echo "Please start your containers manually after verifying the upgrade."
+fi
+
+# Print post-upgrade status
+echo "==== Docker Upgrade Summary ===="
+echo "Previous version: $CURRENT_VERSION"
+echo "New version: $NEW_VERSION"
+echo "Docker service: $(systemctl is-active docker)"
+echo "Configuration backup: $BACKUP_DIR"
+echo "===================================="
+
+echo "Docker upgrade completed successfully."
+exit 0

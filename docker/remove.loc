@@ -1,0 +1,31 @@
+#!/bin/bash
+# docker/remove.loc - Local preparation for Docker removal
+#
+# This script prepares for Docker removal by setting up environment
+# variables and validating arguments.
+
+set -e  # Exit on any error
+
+echo "===== Docker Module - Remove Local Setup ====="
+
+# Default value - remove everything
+KEEP_DATA="false"
+
+# Parse arguments
+if [ $# -gt 0 ]; then
+  # First argument can be true/false or yes/no for keeping data
+  if [[ "$1" = "true" || "$1" = "yes" ]]; then
+    KEEP_DATA="true"
+    echo "Will preserve Docker data (containers, images, volumes) during removal"
+  else
+    echo "Will completely remove Docker including all containers, images, and volumes"
+  fi
+else
+  echo "No arguments provided. Will completely remove Docker by default."
+fi
+
+# Pass variables to the remote script
+echo "KEEP_DATA=\"$KEEP_DATA\"" >> "$MOD_TMP/env"
+
+echo "Remote target: $tgt_host with user: $ssh_user"
+echo "Local setup for Docker removal completed successfully"

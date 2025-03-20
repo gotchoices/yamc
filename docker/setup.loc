@@ -1,0 +1,43 @@
+#!/bin/bash
+# docker/setup.loc - Local preparation for Docker installation
+#
+# This script prepares for Docker installation by setting up environment
+# variables and validating arguments.
+
+set -e  # Exit on any error
+
+echo "===== Docker Module - Local Setup ====="
+
+# Default values
+DEFAULT_DOCKER_VERSION=""  # Latest version by default
+DEFAULT_DOCKER_USERS=""    # No additional users by default
+DEFAULT_DOCKER_CONFIG='{}'  # Default empty JSON config
+
+# Parse arguments
+if [ $# -gt 0 ]; then
+  # First argument can be a version or "latest"
+  if [ "$1" = "latest" ]; then
+    DOCKER_VERSION=""
+  else
+    DOCKER_VERSION="$1"
+    echo "Using specified Docker version: $DOCKER_VERSION"
+  fi
+  shift
+  
+  # Remaining arguments are users to add to docker group
+  if [ $# -gt 0 ]; then
+    DOCKER_USERS="$@"
+    echo "Will add users to docker group: $DOCKER_USERS"
+  fi
+else
+  DOCKER_VERSION="$DEFAULT_DOCKER_VERSION"
+  DOCKER_USERS="$DEFAULT_DOCKER_USERS"
+fi
+
+# Pass variables to the remote script
+echo "DOCKER_VERSION=\"$DOCKER_VERSION\"" >> "$MOD_TMP/env"
+echo "DOCKER_USERS=\"$DOCKER_USERS\"" >> "$MOD_TMP/env"
+echo "DOCKER_CONFIG='$DEFAULT_DOCKER_CONFIG'" >> "$MOD_TMP/env"
+
+echo "Remote target: $tgt_host with user: $ssh_user"
+echo "Local setup completed successfully"

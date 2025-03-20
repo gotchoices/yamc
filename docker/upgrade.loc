@@ -1,0 +1,31 @@
+#!/bin/bash
+# docker/upgrade.loc - Local preparation for Docker upgrade
+#
+# This script prepares for Docker upgrade by setting up environment
+# variables and validating arguments.
+
+set -e  # Exit on any error
+
+echo "===== Docker Module - Upgrade Local Setup ====="
+
+# Parse arguments
+if [ $# -gt 0 ]; then
+  # First argument can be a version or "latest"
+  if [ "$1" = "latest" ]; then
+    TARGET_VERSION=""
+    echo "Will upgrade to the latest available Docker version"
+  else
+    TARGET_VERSION="$1"
+    echo "Will upgrade to specified Docker version: $TARGET_VERSION"
+  fi
+else
+  # Default to latest if no version specified
+  TARGET_VERSION=""
+  echo "No version specified, will upgrade to the latest available Docker version"
+fi
+
+# Pass variables to the remote script
+echo "TARGET_VERSION=\"$TARGET_VERSION\"" >> "$MOD_TMP/env"
+
+echo "Remote target: $tgt_host with user: $ssh_user"
+echo "Local setup for Docker upgrade completed successfully"
