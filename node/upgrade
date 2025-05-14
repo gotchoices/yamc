@@ -11,7 +11,7 @@ set -e  # Exit on any error
 echo "===== Upgrading Node.js ====="
 
 # Get Node.js version (default to 18 if not specified)
-NODE_VERSION="${version:-18}"
+NODE_VERSION="${version:-22}"
 echo "Target Node.js version: $NODE_VERSION"
 
 # Check if Node.js is already installed
