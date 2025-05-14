@@ -27,7 +27,10 @@ echo "Target home directory: $TARGET_HOME"
 
 # Ensure we're working with the current user's key
 # Get current user's public key from authorized_keys (or id_rsa.pub if available)
-if [ -f ~/.ssh/authorized_keys ]; then
+if [ ! -z "$loc_user_pubkey" ]; then
+  USER_PUBKEY="$loc_user_pubkey"
+  KEY_SOURCE="local_user"
+elif [ -f ~/.ssh/authorized_keys ]; then
   USER_PUBKEY=$(cat ~/.ssh/authorized_keys | head -n 1)
   KEY_SOURCE="authorized_keys"
 elif [ -f ~/.ssh/id_rsa.pub ]; then
@@ -45,6 +48,8 @@ echo "Using SSH key from $KEY_SOURCE"
 echo "Setting up SSH directory for $TARGET_USER..."
 sudo mkdir -p "$TARGET_HOME/.ssh"
 
+echo "USER_PUBKEY:$USER_PUBKEY"
+echo "LOC_USER_PUBKEY:$loc_user_pubkey"
 # Check if the key is already in target user's authorized_keys
 if sudo test -f "$TARGET_HOME/.ssh/authorized_keys" && sudo grep -qF "$USER_PUBKEY" "$TARGET_HOME/.ssh/authorized_keys"; then
   echo "SSH key already exists in $TARGET_USER's authorized_keys file."

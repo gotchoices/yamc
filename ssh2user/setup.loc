@@ -3,11 +3,17 @@
 #
 # This script validates the target user parameter if provided.
 
+if [ -f ~/.ssh/id_rsa.pub ]; then
+  LOC_USER_PUBKEY=$(cat ~/.ssh/id_rsa.pub)
+  echo "loc_user_pubkey=\"$LOC_USER_PUBKEY\"" >> "$MOD_TMP/env"
+fi
+
 # Check for target user parameter
 if [ -n "$target" ]; then
   # Validate username format to ensure it follows Unix conventions
   if [[ "$target" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
     echo "Target user: $target"
+    echo "target=\"$target\"" >> "$MOD_TMP/env"
   else
     echo "WARNING: Invalid target username format '$target'. Username must start with a letter or underscore, and contain only lowercase letters, numbers, underscores, or hyphens."
     echo "Using default target 'root' instead."
