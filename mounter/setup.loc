@@ -6,41 +6,31 @@
 
 echo "Preparing NFS mounter installation..."
 
-# Parse arguments to find remote and local parameters
-remote_val=""
-local_val=""
-
-for arg in "$@"; do
-  if [[ "$arg" == remote=* ]]; then
-    remote_val="${arg#remote=}"
-  elif [[ "$arg" == local=* ]]; then
-    local_val="${arg#local=}"
-  fi
-done
+# Variables are already loaded from -e flags by the YAMC script
+# We don't need to parse them from command line arguments
 
 # Validate parameters
-if [ -z "$remote_val" ]; then
+if [ -z "$remote" ]; then
   echo "ERROR: Remote NFS share not specified."
   echo "Usage: yamc -h hostname -u username -e remote=server:/share -e local=/mount/point mounter"
   exit 1
 fi
 
-if [ -z "$local_val" ]; then
+if [ -z "$local" ]; then
   echo "ERROR: Local mount point not specified."
   echo "Usage: yamc -h hostname -u username -e remote=server:/share -e local=/mount/point mounter"
   exit 1
 fi
 
 # Check for valid remote format (server:/path)
-if ! echo "$remote_val" | grep -q ':/'; then
-  echo "WARNING: Remote path '$remote_val' doesn't match expected format 'server:/path'"
+if ! echo "$remote" | grep -q ':/'; then
+  echo "WARNING: Remote path '$remote' doesn't match expected format 'server:/path'"
   echo "Continuing, but this might not work correctly."
 fi
 
-# Pass variables to the remote script
-echo "remote=\"$remote_val\"" >> "$MOD_TMP/env"
-echo "local=\"$local_val\"" >> "$MOD_TMP/env"
+# The variables are already in the env file from the YAMC script
+# We don't need to add them again
 
 echo "NFS mounter configuration prepared:"
-echo "  Remote: $remote_val"
-echo "  Local: $local_val"
+echo "  Remote: $remote"
+echo "  Local: $local"
