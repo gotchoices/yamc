@@ -12,33 +12,28 @@ set -e  # Exit on any error
 echo "===== Installing NFS Mounter Tool ====="
 
 # Validate required variables
-if [ -z "$remote" ] && [ -z "$REMOTE" ]; then
+if [ -z "$remote" ]; then
   echo "ERROR: Remote NFS share not specified. Use '-e remote=server:/path' parameter."
   exit 1
 fi
 
-if [ -z "$local" ] && [ -z "$LOCAL" ]; then
+if [ -z "$local" ]; then
   echo "ERROR: Local mount point not specified. Use '-e local=/mount/path' parameter."
   exit 1
 fi
 
-# Support both uppercase and lowercase variable names
-# Check lowercase first (as per YAMC's environment variable passing)
-REMOTE_VAL="${remote:-$REMOTE}"
-LOCAL_VAL="${local:-$LOCAL}"
-
-echo "NFS Share: $REMOTE_VAL"
-echo "Mount Point: $LOCAL_VAL"
+echo "NFS Share: $remote"
+echo "Mount Point: $local"
 
 # Create mount point if it doesn't exist
-if [ ! -d "$LOCAL_VAL" ]; then
-  echo "Creating mount point directory: $LOCAL_VAL"
-  mkdir -p "$LOCAL_VAL"
+if [ ! -d "$local" ]; then
+  echo "Creating mount point directory: $local"
+  mkdir -p "$local"
 fi
 
 # Install mounter script with proper variables
 echo "Installing mounter script..."
-sed "s|^\(remote=\).*|\1$REMOTE_VAL|; s|^\(local=\).*|\1$LOCAL_VAL|" "$MOD_DIR/mounter.sh.template" > ~/mounter.sh
+sed "s|^\(remote=\).*|\1$remote|; s|^\(local=\).*|\1$local|" "$MOD_DIR/mounter.sh.template" > ~/mounter.sh
 chmod +x ~/mounter.sh
 echo "Mounter script installed to: $HOME/mounter.sh"
 
@@ -73,7 +68,7 @@ fi
 
 echo "===== NFS Mounter Installation Complete ====="
 echo ""
-echo "You can mount $REMOTE_VAL to $LOCAL_VAL by:"
+echo "You can mount $remote to $local by:"
 echo "1. Clicking the 'Mounter' icon in your applications menu"
 echo "2. Running ~/mounter.sh from the terminal"
 echo ""
