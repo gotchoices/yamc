@@ -13,17 +13,20 @@ This module provides:
 ## Usage
 
 ```bash
-# Install default Node.js version (18)
+# Install default Node.js version (22)
 yamc -h hostname -u root node
 
 # Install specific Node.js version
 yamc -h hostname -u root -e version=16 node
 
-# Upgrade to default Node.js version (18)
+# Upgrade to default Node.js version (22)
 yamc -h hostname -u root node upgrade
 
 # Upgrade to specific Node.js version
 yamc -h hostname -u root -e version=20 node upgrade
+
+# Downgrade to an earlier Node.js version (use setup script, not upgrade)
+yamc -h hostname -u root -e version=16 node
 ```
 
 ## What It Does
@@ -85,3 +88,5 @@ After installation, Node.js will be available system-wide, allowing you to:
 - The module uses 'n' version manager rather than NodeSource or NVM
 - It ensures a clean installation by removing any existing Node.js packages
 - Major version numbers (e.g., 16, 18, 20) are supported as parameters
+- To downgrade Node.js to an earlier version, use the main setup script (not upgrade)
+- Downgrading involves removing the current installation and installing the earlier version

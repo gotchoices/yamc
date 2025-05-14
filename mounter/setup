@@ -4,36 +4,41 @@
 # This script installs a utility for mounting NFS filesystems with a
 # desktop shortcut in the GUI environment.
 #
-# Usage: yamc -h hostname -u yourusername mounter remote=server:/share local=/mount/point
-# Example: yamc -h pi400 -u pi mounter remote=192.168.1.10:/data local=/home/pi/data
+# Usage: yamc -h hostname -u yourusername -e remote=server:/share -e local=/mount/point mounter
+# Example: yamc -h pi400 -u pi -e remote=192.168.1.10:/data -e local=/home/pi/data mounter
 
 set -e  # Exit on any error
 
 echo "===== Installing NFS Mounter Tool ====="
 
 # Validate required variables
-if [ -z "$REMOTE" ]; then
-  echo "ERROR: Remote NFS share not specified. Use 'remote=server:/path' parameter."
+if [ -z "$remote" ] && [ -z "$REMOTE" ]; then
+  echo "ERROR: Remote NFS share not specified. Use '-e remote=server:/path' parameter."
   exit 1
 fi
 
-if [ -z "$LOCAL" ]; then
-  echo "ERROR: Local mount point not specified. Use 'local=/mount/path' parameter."
+if [ -z "$local" ] && [ -z "$LOCAL" ]; then
+  echo "ERROR: Local mount point not specified. Use '-e local=/mount/path' parameter."
   exit 1
 fi
 
-echo "NFS Share: $REMOTE"
-echo "Mount Point: $LOCAL"
+# Support both uppercase and lowercase variable names
+# Check lowercase first (as per YAMC's environment variable passing)
+REMOTE_VAL="${remote:-$REMOTE}"
+LOCAL_VAL="${local:-$LOCAL}"
+
+echo "NFS Share: $REMOTE_VAL"
+echo "Mount Point: $LOCAL_VAL"
 
 # Create mount point if it doesn't exist
-if [ ! -d "$LOCAL" ]; then
-  echo "Creating mount point directory: $LOCAL"
-  mkdir -p "$LOCAL"
+if [ ! -d "$LOCAL_VAL" ]; then
+  echo "Creating mount point directory: $LOCAL_VAL"
+  mkdir -p "$LOCAL_VAL"
 fi
 
 # Install mounter script with proper variables
 echo "Installing mounter script..."
-sed "s|^\(remote=\).*|\1$REMOTE|; s|^\(local=\).*|\1$LOCAL|" "$MOD_DIR/mounter.sh.template" > ~/mounter.sh
+sed "s|^\(remote=\).*|\1$REMOTE_VAL|; s|^\(local=\).*|\1$LOCAL_VAL|" "$MOD_DIR/mounter.sh.template" > ~/mounter.sh
 chmod +x ~/mounter.sh
 echo "Mounter script installed to: $HOME/mounter.sh"
 
@@ -68,7 +73,7 @@ fi
 
 echo "===== NFS Mounter Installation Complete ====="
 echo ""
-echo "You can mount $REMOTE to $LOCAL by:"
+echo "You can mount $REMOTE_VAL to $LOCAL_VAL by:"
 echo "1. Clicking the 'Mounter' icon in your applications menu"
 echo "2. Running ~/mounter.sh from the terminal"
 echo ""

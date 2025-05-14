@@ -14,18 +14,18 @@ The NFS Mounter provides a simple way to mount network file systems through:
 ## Usage
 
 ```bash
-yamc -h hostname -u username mounter remote=server:/share local=/mount/point
+yamc -h hostname -u username -e remote=server:/share -e local=/mount/point mounter
 ```
 
 ### Parameters
 
-- `remote`: The NFS share to mount in format server:/path
-- `local`: The local mount point on the client system
+- `-e remote`: The NFS share to mount in format server:/path
+- `-e local`: The local mount point on the client system
 
 ### Example
 
 ```bash
-yamc -h raspberrypi -u pi mounter remote=192.168.1.100:/data local=/home/pi/networkdata
+yamc -h raspberrypi -u pi -e remote=192.168.1.100:/data -e local=/home/pi/networkdata mounter
 ```
 
 ## What It Does
