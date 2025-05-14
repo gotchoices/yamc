@@ -7,40 +7,40 @@
 echo "Preparing NFS mounter installation..."
 
 # Parse arguments to find remote and local parameters
-REMOTE=""
-LOCAL=""
+remote_val=""
+local_val=""
 
 for arg in "$@"; do
   if [[ "$arg" == remote=* ]]; then
-    REMOTE="${arg#remote=}"
+    remote_val="${arg#remote=}"
   elif [[ "$arg" == local=* ]]; then
-    LOCAL="${arg#local=}"
+    local_val="${arg#local=}"
   fi
 done
 
 # Validate parameters
-if [ -z "$REMOTE" ]; then
+if [ -z "$remote_val" ]; then
   echo "ERROR: Remote NFS share not specified."
-  echo "Usage: yamc -h hostname -u username mounter remote=server:/share local=/mount/point"
+  echo "Usage: yamc -h hostname -u username -e remote=server:/share -e local=/mount/point mounter"
   exit 1
 fi
 
-if [ -z "$LOCAL" ]; then
+if [ -z "$local_val" ]; then
   echo "ERROR: Local mount point not specified."
-  echo "Usage: yamc -h hostname -u username mounter remote=server:/share local=/mount/point"
+  echo "Usage: yamc -h hostname -u username -e remote=server:/share -e local=/mount/point mounter"
   exit 1
 fi
 
 # Check for valid remote format (server:/path)
-if ! echo "$REMOTE" | grep -q ':/'; then
-  echo "WARNING: Remote path '$REMOTE' doesn't match expected format 'server:/path'"
+if ! echo "$remote_val" | grep -q ':/'; then
+  echo "WARNING: Remote path '$remote_val' doesn't match expected format 'server:/path'"
   echo "Continuing, but this might not work correctly."
 fi
 
 # Pass variables to the remote script
-echo "REMOTE=\"$REMOTE\"" >> "$MOD_TMP/env"
-echo "LOCAL=\"$LOCAL\"" >> "$MOD_TMP/env"
+echo "remote=\"$remote_val\"" >> "$MOD_TMP/env"
+echo "local=\"$local_val\"" >> "$MOD_TMP/env"
 
 echo "NFS mounter configuration prepared:"
-echo "  Remote: $REMOTE"
-echo "  Local: $LOCAL"
+echo "  Remote: $remote_val"
+echo "  Local: $local_val"
