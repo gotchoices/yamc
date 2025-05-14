@@ -48,8 +48,8 @@ echo "Using SSH key from $KEY_SOURCE"
 echo "Setting up SSH directory for $TARGET_USER..."
 sudo mkdir -p "$TARGET_HOME/.ssh"
 
-echo "USER_PUBKEY:$USER_PUBKEY"
-echo "LOC_USER_PUBKEY:$loc_user_pubkey"
+#echo "USER_PUBKEY:$USER_PUBKEY"
+#echo "LOC_USER_PUBKEY:$loc_user_pubkey"
 # Check if the key is already in target user's authorized_keys
 if sudo test -f "$TARGET_HOME/.ssh/authorized_keys" && sudo grep -qF "$USER_PUBKEY" "$TARGET_HOME/.ssh/authorized_keys"; then
   echo "SSH key already exists in $TARGET_USER's authorized_keys file."
