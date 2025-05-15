@@ -52,8 +52,8 @@ Commands:
                   Must be run with a regular unprivileged user that has sudo access
 
 Options:
-  -h hostname     Required. Target remote hostname
-  -u username     Optional for modules, Required for init. SSH username (defaults to current user)
+  -h hostname     Target remote hostname (or set YAMC_HOST environment variable)
+  -u username     Optional for modules, Required for init. SSH username (defaults to YAMC_USER or current user)
   -e var=value    Optional. Environment variables to pass to scripts (can be used multiple times)
   -v              Optional. Enable verbose output
   -t timeout      Optional. SSH connection timeout in seconds (default: 30)
@@ -63,12 +63,18 @@ Arguments:
   subfunction     Optional. Script to run (defaults to "setup")
   args            Optional. Additional arguments passed to the module scripts
 
+Environment Variables:
+  YAMC_HOST       Alternative to -h flag, specifies the target remote hostname
+  YAMC_USER       Alternative to -u flag, specifies the SSH username
+
 Examples:
-  yamc init -h server1 -u regular_user    # Initialize host with regular user (must have sudo access)
-  yamc -h server1 -u regular_user init    # Alternative way to initialize (same result)
-  yamc -h server1 -u root timezone America/New_York  # Run module as root (after init)
-  yamc -h server1 pref                    # Set user preferences
-  yamc -h server1 -v test                 # Run test with verbose output
+  export YAMC_HOST=server1
+  export YAMC_USER=admin
+  yamc init                          # Initialize host using environment variables
+  yamc -h server1 -u regular_user init    # Command-line args override environment variables
+  yamc -u root timezone America/New_York  # Run module as root (after init)
+  yamc pref                         # Set user preferences, uses YAMC_HOST and YAMC_USER
+  yamc -v test                      # Run test with verbose output, uses environment vars
 EOF
   exit 1
 }
@@ -329,12 +335,12 @@ parse_init_command() {
   
   # Check required parameters for init
   if [ -z "$HOST" ]; then
-    log ERROR "Remote hostname (-h) is required for initialization"
+    log ERROR "Remote hostname (-h) is required for initialization or set YAMC_HOST environment variable"
     show_usage
   fi
   
   if [ -z "$SSH_USER" ]; then
-    log ERROR "Username (-u) is required for initialization"
+    log ERROR "Username (-u) is required for initialization or set YAMC_USER environment variable"
     log ERROR "Must specify a regular unprivileged user with sudo access"
     show_usage
   fi
@@ -380,7 +386,7 @@ parse_module_command() {
 
   # Check required parameters
   if [ -z "$HOST" ]; then
-    log ERROR "Remote hostname (-h) is required"
+    log ERROR "Remote hostname (-h) is required or set YAMC_HOST environment variable"
     show_usage
   fi
 
@@ -603,8 +609,8 @@ run_module() {
 #
 
 # Initialize default values as globals
-SSH_USER="$(whoami)"
-HOST=""
+SSH_USER="${YAMC_USER:-$(whoami)}"  # Use YAMC_USER if set, otherwise current user
+HOST="${YAMC_HOST:-}"  # Use YAMC_HOST environment variable if set
 MODULE=""
 SUBFUNC="setup"
 ENV_VARS=()
