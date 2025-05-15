@@ -1,0 +1,134 @@
+#!/bin/bash
+# Certbot module - Remote setup
+# Installs and configures certbot for SSL certificate management
+
+echo "===================================================================="
+echo "Certbot module - Remote setup running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# Validate required variables
+if [ -z "$domain" ]; then
+  echo "ERROR: Domain parameter not specified."
+  echo "Usage: yamc -h hostname -e domain=example.com certbot"
+  exit 1
+fi
+
+if [ -z "$email" ]; then
+  echo "ERROR: Email parameter not specified."
+  exit 1
+fi
+
+if [ -z "$webroot" ]; then
+  echo "ERROR: Webroot parameter not specified."
+  exit 1
+fi
+
+# Define constants
+LE_DIR="/etc/letsencrypt"
+LE_KEY="privkey.pem"
+LE_CERT="fullchain.pem"
+CRON_DIR="/etc/cron.d"
+CRON_FILE="certbot-hook"
+CERT_DIR="$LE_DIR/live/$domain"
+
+echo "Domain: $domain"
+echo "Email: $email"
+echo "Webroot: $webroot"
+
+# Ensure webroot directory exists
+if [ ! -d "$webroot" ]; then
+  echo "Creating webroot directory: $webroot"
+  mkdir -p "$webroot"
+fi
+
+# Ensure .well-known directory exists for renewal
+if [ ! -d "$webroot/.well-known" ]; then
+  echo "Creating .well-known directory"
+  mkdir -p "$webroot/.well-known"
+  chmod 755 "$webroot/.well-known"
+fi
+
+# Install certbot if not already installed
+if [ ! -d "$LE_DIR" ] || [ -z "$(which certbot)" ]; then
+  echo "Installing certbot certificate manager"
+  apt-get update
+  apt-get install -y -q certbot
+fi
+
+# Check if certificate already exists
+if [ -d "$CERT_DIR" ]; then
+  echo "Certificate folder found: $CERT_DIR"
+  
+  # Check if certificate is near expiration (less than 30 days)
+  EXPIRY_DATE=$(openssl x509 -in "$CERT_DIR/$LE_CERT" -noout -enddate | cut -d= -f2)
+  EXPIRY_EPOCH=$(date -d "$EXPIRY_DATE" +%s)
+  NOW_EPOCH=$(date +%s)
+  DAYS_REMAINING=$(( ($EXPIRY_EPOCH - $NOW_EPOCH) / 86400 ))
+  
+  if [ "$DAYS_REMAINING" -lt 30 ]; then
+    echo "Certificate expires in $DAYS_REMAINING days. Attempting renewal."
+    certbot renew --force-renewal
+  else
+    echo "Certificate valid for $DAYS_REMAINING more days."
+  fi
+else
+  echo "Creating new certificate for: $domain"
+  
+  # Create certificate using webroot method
+  certbot certonly -m "$email" --agree-tos -q -d "$domain" \
+    --webroot --webroot-path="$webroot"
+    
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Certificate creation failed."
+    exit 1
+  fi
+  
+  echo "Certificate created successfully."
+  
+  # Verify dry-run renewal works
+  echo "Testing certificate renewal (dry-run)"
+  certbot renew --dry-run
+  
+  if [ $? -ne 0 ]; then
+    echo "WARNING: Certificate renewal dry-run failed."
+  fi
+fi
+
+# Set up custom post-renewal hook if specified
+if [ -n "$renewal_hook" ]; then
+  echo "Setting up custom renewal hook"
+  
+  HOOK_DIR="/etc/letsencrypt/renewal-hooks/post"
+  HOOK_SCRIPT="$HOOK_DIR/yamc-custom-hook.sh"
+  
+  # Ensure hook directory exists
+  if [ ! -d "$HOOK_DIR" ]; then
+    mkdir -p "$HOOK_DIR"
+  fi
+  
+  # Create renewal hook script
+  cat > "$HOOK_SCRIPT" << EOF
+#!/bin/bash
+# Custom certbot renewal hook created by YAMC
+# For domain: $domain
+
+$renewal_hook
+EOF
+
+  chmod 755 "$HOOK_SCRIPT"
+  echo "Custom renewal hook created: $HOOK_SCRIPT"
+fi
+
+# Create cron job to check certificate daily
+cat > "$CRON_DIR/$CRON_FILE" << EOF
+# Daily certbot renewal check for $domain (managed by YAMC)
+0 3 * * * root certbot renew --quiet
+EOF
+
+chmod 644 "$CRON_DIR/$CRON_FILE"
+echo "Cron job created: $CRON_DIR/$CRON_FILE"
+
+echo "===================================================================="
+echo "Certbot setup completed successfully for domain: $domain"
+echo "Certificate location: $CERT_DIR"
+echo "====================================================================" 

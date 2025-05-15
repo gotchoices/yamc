@@ -1,0 +1,91 @@
+#!/bin/bash
+# Certbot module - Status subfunction
+# Checks status of SSL certificates
+
+echo "===================================================================="
+echo "Certbot status - Running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# Define constants
+LE_DIR="/etc/letsencrypt"
+LE_CERT="fullchain.pem"
+
+# Check if certbot is installed
+if [ ! -d "$LE_DIR" ] || [ -z "$(which certbot)" ]; then
+  echo "ERROR: Certbot is not installed."
+  echo "Please run 'yamc -h hostname certbot' first to install and configure certbot."
+  exit 1
+fi
+
+# Function to display certificate info
+display_cert_info() {
+  local domain=$1
+  local cert_file="$LE_DIR/live/$domain/$LE_CERT"
+  
+  if [ ! -f "$cert_file" ]; then
+    echo "  Certificate file not found: $cert_file"
+    return 1
+  fi
+  
+  # Get certificate information
+  local subject=$(openssl x509 -in "$cert_file" -noout -subject | sed 's/^subject= //')
+  local issuer=$(openssl x509 -in "$cert_file" -noout -issuer | sed 's/^issuer= //')
+  local start_date=$(openssl x509 -in "$cert_file" -noout -startdate | cut -d= -f2)
+  local end_date=$(openssl x509 -in "$cert_file" -noout -enddate | cut -d= -f2)
+  
+  # Calculate days remaining
+  local end_epoch=$(date -d "$end_date" +%s)
+  local now_epoch=$(date +%s)
+  local days_remaining=$(( ($end_epoch - $now_epoch) / 86400 ))
+  
+  # Display certificate information
+  echo "  Subject: $subject"
+  echo "  Issuer: $issuer"
+  echo "  Valid from: $start_date"
+  echo "  Valid until: $end_date"
+  echo "  Days remaining: $days_remaining"
+  
+  # Display warning if certificate will expire soon
+  if [ "$days_remaining" -lt 30 ]; then
+    echo "  WARNING: Certificate will expire in less than 30 days!"
+  fi
+  
+  return 0
+}
+
+# Check if specific domain is requested
+if [ -n "$domain" ]; then
+  echo "Checking certificate for domain: $domain"
+  CERT_DIR="$LE_DIR/live/$domain"
+  
+  if [ ! -d "$CERT_DIR" ]; then
+    echo "ERROR: Certificate for domain '$domain' not found."
+    echo "Please run 'yamc -h hostname -e domain=$domain certbot' first."
+    exit 1
+  fi
+  
+  display_cert_info "$domain"
+else
+  # List all certificates
+  echo "Listing all certificates:"
+  
+  # Check if any certificates exist
+  if [ ! -d "$LE_DIR/live" ] || [ -z "$(ls -A "$LE_DIR/live" 2>/dev/null)" ]; then
+    echo "No certificates found."
+    exit 0
+  fi
+  
+  # Loop through all domains with certificates
+  for domain_dir in "$LE_DIR/live"/*; do
+    if [ -d "$domain_dir" ]; then
+      domain=$(basename "$domain_dir")
+      echo "Domain: $domain"
+      display_cert_info "$domain"
+      echo "-----------------------------------------"
+    fi
+  done
+fi
+
+echo "===================================================================="
+echo "Certificate status check completed"
+echo "====================================================================" 

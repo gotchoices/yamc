@@ -1,0 +1,54 @@
+#!/bin/bash
+# Certbot module - Renew subfunction
+# Forces renewal of SSL certificates for specified domains
+
+echo "===================================================================="
+echo "Certbot renewal - Running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# Define constants
+LE_DIR="/etc/letsencrypt"
+
+# Check if certbot is installed
+if [ ! -d "$LE_DIR" ] || [ -z "$(which certbot)" ]; then
+  echo "ERROR: Certbot is not installed."
+  echo "Please run 'yamc -h hostname certbot' first to install and configure certbot."
+  exit 1
+fi
+
+# Determine renewal mode
+if [ -n "$domain" ]; then
+  # Renew specific domain
+  echo "Renewing certificate for domain: $domain"
+  CERT_DIR="$LE_DIR/live/$domain"
+  
+  if [ ! -d "$CERT_DIR" ]; then
+    echo "ERROR: Certificate for domain '$domain' not found."
+    echo "Please run 'yamc -h hostname -e domain=$domain certbot' first."
+    exit 1
+  fi
+  
+  certbot renew --cert-name "$domain" --force-renewal
+  
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Certificate renewal failed for domain: $domain"
+    exit 1
+  fi
+  
+  echo "Certificate for $domain successfully renewed"
+else
+  # Renew all certificates
+  echo "Renewing all certificates"
+  certbot renew --force-renewal
+  
+  if [ $? -ne 0 ]; then
+    echo "ERROR: Certificate renewal failed for one or more domains"
+    exit 1
+  fi
+  
+  echo "All certificates have been successfully renewed"
+fi
+
+echo "===================================================================="
+echo "Certificate renewal completed"
+echo "====================================================================" 

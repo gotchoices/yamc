@@ -1,0 +1,51 @@
+#!/bin/bash
+# Certbot module - Local setup
+# Validates parameters and prepares environment variables for remote script
+
+# Default values
+DEFAULT_WEBROOT="/var/www/html"
+DEFAULT_EMAIL="admin"
+
+# Check for required domain parameter
+if [ -z "$domain" ]; then
+  if [ $# -ge 1 ]; then
+    # Use first positional argument as domain if provided
+    echo "domain=\"$1\"" >> "$MOD_TMP/env"
+    echo "Using domain from argument: $1"
+  else
+    echo "ERROR: Domain not specified."
+    echo "Usage: yamc -h hostname -e domain=example.com certbot"
+    echo "   or: yamc -h hostname certbot example.com"
+    exit 1
+  fi
+fi
+
+# Set default email if not provided
+if [ -z "$email" ]; then
+  # Use domain-based email if domain is set
+  if [ -n "$domain" ]; then
+    echo "email=\"admin@$domain\"" >> "$MOD_TMP/env"
+    echo "Using default email: admin@$domain"
+  elif [ -n "$1" ]; then
+    echo "email=\"admin@$1\"" >> "$MOD_TMP/env"
+    echo "Using default email: admin@$1"
+  else
+    echo "email=\"$DEFAULT_EMAIL\"" >> "$MOD_TMP/env"
+    echo "Using generic default email: $DEFAULT_EMAIL"
+  fi
+fi
+
+# Set default webroot if not provided
+if [ -z "$webroot" ]; then
+  echo "webroot=\"$DEFAULT_WEBROOT\"" >> "$MOD_TMP/env"
+  echo "Using default webroot: $DEFAULT_WEBROOT"
+fi
+
+# Add optional renewal_hook parameter if specified
+if [ -n "$renewal_hook" ]; then
+  echo "Using custom renewal hook command: $renewal_hook"
+else
+  echo "No custom renewal hook specified"
+fi
+
+echo "Local setup completed successfully" 
