@@ -1,0 +1,110 @@
+#!/bin/bash
+# Certbot module - Remove subfunction
+# Completely removes certbot and all related files
+
+echo "===================================================================="
+echo "Certbot removal - Running on $(hostname) as $(whoami)"
+echo "===================================================================="
+
+# Check if we have root privileges
+if [ $(id -u) -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Define constants
+LE_DIR="/etc/letsencrypt"
+CRON_FILE="/etc/cron.d/certbot-hook"
+CRON_DAILY="/etc/cron.daily/certbot"
+SYSTEMD_TIMER="/etc/systemd/system/certbot.timer"
+SYSTEMD_SERVICE="/etc/systemd/system/certbot.service"
+RENEWAL_HOOKS="/etc/letsencrypt/renewal-hooks"
+
+# Ask for confirmation
+echo "WARNING: This will completely remove certbot, all certificates and settings!"
+echo "         All SSL/TLS certificates will be deleted."
+echo "         Any websites using these certificates will stop working with HTTPS."
+read -p "Are you sure you want to proceed? (y/N): " -n 1 -r
+echo ""
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+  echo "Operation cancelled."
+  exit 0
+fi
+
+# Stop and disable services
+if [ -f "$SYSTEMD_TIMER" ]; then
+  echo "Stopping and disabling certbot timer..."
+  systemctl stop certbot.timer 2>/dev/null || true
+  systemctl disable certbot.timer 2>/dev/null || true
+fi
+
+if [ -f "$SYSTEMD_SERVICE" ]; then
+  echo "Stopping and disabling certbot service..."
+  systemctl stop certbot.service 2>/dev/null || true
+  systemctl disable certbot.service 2>/dev/null || true
+fi
+
+# Remove cron jobs
+if [ -f "$CRON_FILE" ]; then
+  echo "Removing certbot cron job: $CRON_FILE"
+  rm -f "$CRON_FILE"
+fi
+
+if [ -f "$CRON_DAILY" ]; then
+  echo "Removing certbot daily cron: $CRON_DAILY"
+  rm -f "$CRON_DAILY"
+fi
+
+# Check any certificates that would be removed
+if [ -d "$LE_DIR/live" ]; then
+  echo "The following certificates will be removed:"
+  ls -1 "$LE_DIR/live" | sort
+  echo ""
+  read -p "Last chance to cancel. Continue with removal? (y/N): " -n 1 -r
+  echo ""
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Operation cancelled."
+    exit 0
+  fi
+fi
+
+# Remove certbot package
+if command -v apt-get >/dev/null 2>&1; then
+  echo "Removing certbot package using apt..."
+  apt-get remove --purge -y certbot python3-certbot-apache python3-certbot-nginx
+  apt-get autoremove -y
+elif command -v yum >/dev/null 2>&1; then
+  echo "Removing certbot package using yum..."
+  yum remove -y certbot
+elif command -v dnf >/dev/null 2>&1; then
+  echo "Removing certbot package using dnf..."
+  dnf remove -y certbot
+else
+  echo "WARNING: Could not determine package manager to remove certbot package."
+  echo "You may need to remove the certbot package manually."
+fi
+
+# Remove Let's Encrypt directory and all certificates
+if [ -d "$LE_DIR" ]; then
+  echo "Removing Let's Encrypt directory: $LE_DIR"
+  rm -rf "$LE_DIR"
+fi
+
+# Remove any remaining renewal hooks
+if [ -d "$RENEWAL_HOOKS" ]; then
+  echo "Removing renewal hooks: $RENEWAL_HOOKS"
+  rm -rf "$RENEWAL_HOOKS"
+fi
+
+# Remove the systemd files if they still exist
+rm -f "$SYSTEMD_TIMER" "$SYSTEMD_SERVICE" 2>/dev/null || true
+
+# Run systemd daemon-reload if systemd is in use
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload
+fi
+
+echo "===================================================================="
+echo "Certbot has been completely removed from this system"
+echo "All certificates and renewal configurations have been deleted"
+echo "====================================================================" 

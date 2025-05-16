@@ -74,10 +74,84 @@ if [ -d "$CERT_DIR" ]; then
 else
   echo "Creating new certificate for: $domain"
   
-  # Create certificate using webroot method
-  certbot certonly -m "$email" --agree-tos -q -d "$domain" \
-    --webroot --webroot-path="$webroot"
+  # Create certificate using webroot method or standalone mode
+  if [ "$standalone" = "true" ]; then
+    echo "Using standalone mode for certificate creation"
+    certbot certonly -m "$email" --agree-tos -q -d "$domain" \
+      --standalone
+  else
+    echo "Using webroot mode for certificate creation"
     
+    # Verify webroot directory exists
+    if [ ! -d "$webroot" ]; then
+      echo "ERROR: Webroot directory '$webroot' does not exist"
+      exit 1
+    fi
+    
+    # Verify webroot directory is writable
+    if [ ! -w "$webroot" ]; then
+      echo "ERROR: Webroot directory '$webroot' is not writable"
+      exit 1
+    fi
+    
+    # Check if a web server is running
+    WEB_SERVER_RUNNING=false
+    
+    # Check for common web servers
+    for service in nginx apache2 httpd lighttpd; do
+      if systemctl is-active --quiet $service; then
+        echo "Detected running web server: $service"
+        WEB_SERVER_RUNNING=true
+        break
+      fi
+    done
+    
+    if [ "$WEB_SERVER_RUNNING" = "false" ]; then
+      echo "ERROR: No web server detected as running. In webroot mode, a web server must be running."
+      echo "Please start a web server or use standalone mode with -e standalone=true"
+      exit 1
+    fi
+    
+    # Create required directories for ACME challenge
+    ACME_DIR="$webroot/.well-known/acme-challenge"
+    mkdir -p "$ACME_DIR"
+    chmod -R 755 "$webroot/.well-known"
+    
+    echo "Created ACME challenge directory: $ACME_DIR"
+    
+    # Create test file to verify web server can serve from .well-known/acme-challenge
+    TEST_FILE="$ACME_DIR/certbot-test-$RANDOM"
+    echo "certbot verification test" > "$TEST_FILE"
+    
+    # Attempt to fetch the test file
+    echo "Testing if ACME challenge directory is accessible via HTTP..."
+    if command -v curl >/dev/null 2>&1; then
+      HTTP_CHECK=$(curl -s -o /dev/null -w "%{http_code}" http://$domain/.well-known/acme-challenge/$(basename "$TEST_FILE") || echo "failed")
+    elif command -v wget >/dev/null 2>&1; then
+      HTTP_CHECK=$(wget -q -O /dev/null http://$domain/.well-known/acme-challenge/$(basename "$TEST_FILE") --server-response 2>&1 | awk '/^  HTTP/{print $2}' || echo "failed")
+    else
+      echo "WARNING: Could not test HTTP access (curl or wget not available)"
+      HTTP_CHECK="skipped"
+    fi
+    
+    rm -f "$TEST_FILE"
+    
+    if [ "$HTTP_CHECK" = "200" ]; then
+      echo "HTTP check successful: ACME challenge directory is accessible"
+    elif [ "$HTTP_CHECK" = "skipped" ]; then
+      echo "WARNING: Skipped HTTP check. Make sure $domain/.well-known/acme-challenge/ is accessible via HTTP"
+    else 
+      echo "WARNING: HTTP check returned: $HTTP_CHECK"
+      echo "The ACME challenge directory may not be accessible via HTTP"
+      echo "Please ensure your web server is properly configured to serve files from $ACME_DIR"
+      echo "Continuing anyway, but certificate creation may fail..."
+    fi
+    
+    # Run certbot with webroot method
+    certbot certonly -m "$email" --agree-tos -q -d "$domain" \
+      --webroot --webroot-path="$webroot"
+  fi
+  
   if [ $? -ne 0 ]; then
     echo "ERROR: Certificate creation failed."
     exit 1

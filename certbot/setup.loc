@@ -3,46 +3,57 @@
 # Validates parameters and prepares environment variables for remote script
 
 # Default values
-DEFAULT_WEBROOT="/var/www/html"
 DEFAULT_EMAIL="admin"
 
-# Check for required domain parameter
+# Check for required domain parameter and store the value for later use
+DOMAIN_VALUE=""
 if [ -z "$domain" ]; then
   if [ $# -ge 1 ]; then
     # Use first positional argument as domain if provided
-    echo "domain=\"$1\"" >> "$MOD_TMP/env"
-    echo "Using domain from argument: $1"
+    DOMAIN_VALUE="$1"
+    echo "domain=\"$DOMAIN_VALUE\"" >> "$MOD_TMP/env"
+    echo "Using domain from argument: $DOMAIN_VALUE"
   else
-    echo "ERROR: Domain not specified."
-    echo "Usage: yamc -h hostname -e domain=example.com certbot"
-    echo "   or: yamc -h hostname certbot example.com"
-    exit 1
+    # Use target host as domain if not specified
+    DOMAIN_VALUE="$tgt_host"
+    echo "domain=\"$DOMAIN_VALUE\"" >> "$MOD_TMP/env"
+    echo "Using target host as domain: $DOMAIN_VALUE"
   fi
+else
+  # Domain was provided as environment variable
+  DOMAIN_VALUE="$domain"
 fi
 
 # Set default email if not provided
 if [ -z "$email" ]; then
-  # Use domain-based email if domain is set
-  if [ -n "$domain" ]; then
-    echo "email=\"admin@$domain\"" >> "$MOD_TMP/env"
-    echo "Using default email: admin@$domain"
-  elif [ -n "$1" ]; then
-    echo "email=\"admin@$1\"" >> "$MOD_TMP/env"
-    echo "Using default email: admin@$1"
-  else
-    echo "email=\"$DEFAULT_EMAIL\"" >> "$MOD_TMP/env"
-    echo "Using generic default email: $DEFAULT_EMAIL"
-  fi
+  # Always use the domain we just determined for the email
+  echo "email=\"admin@$DOMAIN_VALUE\"" >> "$MOD_TMP/env"
+  echo "Using default email: admin@$DOMAIN_VALUE"
 fi
 
-# Set default webroot if not provided
-if [ -z "$webroot" ]; then
-  echo "webroot=\"$DEFAULT_WEBROOT\"" >> "$MOD_TMP/env"
-  echo "Using default webroot: $DEFAULT_WEBROOT"
+# Set standalone mode if specified
+if [ "$standalone" = "true" ]; then
+  echo "standalone=\"true\"" >> "$MOD_TMP/env"
+  echo "Using standalone mode for certificate creation"
+else
+  echo "standalone=\"false\"" >> "$MOD_TMP/env"
+  echo "Using webroot mode for certificate creation"
+  
+  # Check for required webroot parameter in webroot mode
+  if [ -z "$webroot" ]; then
+    echo "ERROR: Webroot parameter is required when not using standalone mode"
+    echo "Usage: yamc -h hostname -u root -e webroot=/path/to/webroot certbot"
+    echo "   or: yamc -h hostname -u root -e standalone=true certbot"
+    exit 1
+  else
+    echo "webroot=\"$webroot\"" >> "$MOD_TMP/env"
+    echo "Using webroot path: $webroot"
+  fi
 fi
 
 # Add optional renewal_hook parameter if specified
 if [ -n "$renewal_hook" ]; then
+  echo "renewal_hook=\"$renewal_hook\"" >> "$MOD_TMP/env"
   echo "Using custom renewal hook command: $renewal_hook"
 else
   echo "No custom renewal hook specified"
