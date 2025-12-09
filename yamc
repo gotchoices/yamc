@@ -45,7 +45,7 @@ show_usage() {
   cat <<EOF
 Usage: yamc init -h remote_hostname -u username [-v] [-t timeout]
        yamc -h remote_hostname -u username init [-v] [-t timeout]
-       yamc -h remote_hostname [-u username] [-e var=value] [-v] [-t timeout] module [subfunction] [args...]
+       yamc -h remote_hostname [-u username] [-p profile] [-r resources] [-e var=value] [-v] [-t timeout] module [subfunction] [args...]
 
 Commands:
   init            Initialize a host for use with YAMC (required before using other modules)
@@ -54,6 +54,8 @@ Commands:
 Options:
   -h hostname     Target remote hostname (or set YAMC_HOST environment variable)
   -u username     Optional for modules, Required for init. SSH username (defaults to YAMC_USER or current user)
+  -p profile      Optional. Resource profile name (e.g., -p master uses module.master/)
+  -r path         Optional. Path to resources directory (or set YAMC_RESOURCES)
   -e var=value    Optional. Environment variables to pass to scripts (can be used multiple times)
   -v              Optional. Enable verbose output
   -t timeout      Optional. SSH connection timeout in seconds (default: 30)
@@ -66,15 +68,19 @@ Arguments:
 Environment Variables:
   YAMC_HOST       Alternative to -h flag, specifies the target remote hostname
   YAMC_USER       Alternative to -u flag, specifies the SSH username
+  YAMC_RESOURCES  Alternative to -r flag, path to resources directory
+  YAMC_PROFILE    Alternative to -p flag, default profile name
 
 Examples:
   export YAMC_HOST=server1
   export YAMC_USER=admin
-  yamc init                          # Initialize host using environment variables
-  yamc -h server1 -u regular_user init    # Command-line args override environment variables
-  yamc -u root timezone America/New_York  # Run module as root (after init)
-  yamc pref                         # Set user preferences, uses YAMC_HOST and YAMC_USER
-  yamc -v test                      # Run test with verbose output, uses environment vars
+  yamc init                              # Initialize host using environment variables
+  yamc -h server1 -u regular_user init   # Command-line args override environment variables
+  yamc -u root timezone America/New_York # Run module as root (after init)
+  yamc pref                              # Set user preferences, uses YAMC_HOST and YAMC_USER
+  yamc -v test                           # Run test with verbose output, uses environment vars
+  yamc -p master named setup             # Use named.master/ resources for DNS master server
+  yamc -r ~/private/configs named edit   # Use explicit resources directory
 EOF
   exit 1
 }
@@ -275,7 +281,13 @@ cleanup() {
   local exit_code=$?
   log INFO "Cleaning up temporary resources..."
   
-  # If SSHFS was mounted, unmount it
+  # If resources SSHFS was mounted, unmount it first
+  if [ ! -z "$REMOTE_RES_MOUNT" ]; then
+    log DEBUG "Unmounting remote resources directory: $REMOTE_RES_MOUNT"
+    ssh "$SSH_USER@$HOST" "fusermount -u \"$REMOTE_RES_MOUNT\"" 2>/dev/null || true
+  fi
+  
+  # If module SSHFS was mounted, unmount it
   if [ ! -z "$REMOTE_MOUNT" ]; then
     log DEBUG "Unmounting remote SSHFS directory: $REMOTE_MOUNT"
     ssh "$SSH_USER@$HOST" "fusermount -u \"$REMOTE_MOUNT\"" 2>/dev/null || true
@@ -306,10 +318,14 @@ cleanup() {
     log DEBUG "Skipping MOD_TMP removal due to safety checks: $MOD_TMP"
   fi
   
-  # Remove named pipe if it exists
+  # Remove named pipes if they exist
   if [ ! -z "$FIFO_PATH" ] && [ -p "$FIFO_PATH" ]; then
     log DEBUG "Removing named pipe: $FIFO_PATH"
     rm -f "$FIFO_PATH" 2>/dev/null || true
+  fi
+  if [ ! -z "$RES_FIFO_PATH" ] && [ -p "$RES_FIFO_PATH" ]; then
+    log DEBUG "Removing resources named pipe: $RES_FIFO_PATH"
+    rm -f "$RES_FIFO_PATH" 2>/dev/null || true
   fi
   
   log INFO "Cleanup completed"
@@ -354,10 +370,12 @@ parse_module_command() {
   # Parse options for module command
   local OPTIND=1  # Reset OPTIND to ensure proper parsing
   
-  while getopts "h:u:e:vt:" opt "$@"; do
+  while getopts "h:u:p:r:e:vt:" opt "$@"; do
     case $opt in
       h) HOST="$OPTARG" ;;
       u) SSH_USER="$OPTARG" ;;
+      p) PROFILE="$OPTARG" ;;
+      r) RESOURCES_PATH="$OPTARG" ;;
       e) ENV_VARS+=("$OPTARG") ;;
       v) VERBOSE=true ;;
       t) SSH_TIMEOUT="$OPTARG" ;;
@@ -454,6 +472,67 @@ run_module() {
   MOD_TMP="$MOD_DIR/tmp-$$"
   mkdir -p "$MOD_TMP"
 
+  #
+  # Resolve Resources Directory
+  #
+  RESOURCES_ROOT=""
+  
+  # Priority: 1) -r flag, 2) YAMC_RESOURCES env, 3) ../yamc.local sibling
+  if [ ! -z "$RESOURCES_PATH" ]; then
+    # Explicit path provided
+    if [ -d "$RESOURCES_PATH" ]; then
+      RESOURCES_ROOT="$RESOURCES_PATH"
+      log DEBUG "Using explicit resources path: $RESOURCES_ROOT"
+    else
+      log ERROR "Specified resources path does not exist: $RESOURCES_PATH"
+      exit 1
+    fi
+  else
+    # Check for yamc.local sibling directory
+    YAMC_LOCAL_PATH="$(dirname "$INSTALL_DIR")/yamc.local"
+    if [ -d "$YAMC_LOCAL_PATH" ]; then
+      RESOURCES_ROOT="$YAMC_LOCAL_PATH"
+      log DEBUG "Found yamc.local sibling: $RESOURCES_ROOT"
+    fi
+  fi
+  
+  # Resolve module-specific resources with profile support
+  RES_DIR=""
+  RES_BASE=""
+  res_profile="$PROFILE"
+  
+  if [ ! -z "$RESOURCES_ROOT" ]; then
+    # Set base resources path (without profile)
+    if [ -d "$RESOURCES_ROOT/$MODULE" ]; then
+      RES_BASE="$RESOURCES_ROOT/$MODULE"
+      log DEBUG "Found base resources: $RES_BASE"
+    fi
+    
+    # Check for profile-specific resources
+    if [ ! -z "$PROFILE" ]; then
+      if [ -d "$RESOURCES_ROOT/${MODULE}.${PROFILE}" ]; then
+        RES_DIR="$RESOURCES_ROOT/${MODULE}.${PROFILE}"
+        log DEBUG "Found profile resources: $RES_DIR"
+      else
+        log DEBUG "No profile-specific resources at: $RESOURCES_ROOT/${MODULE}.${PROFILE}"
+        # Fall back to base if profile doesn't exist
+        RES_DIR="$RES_BASE"
+      fi
+    else
+      # No profile specified, use base
+      RES_DIR="$RES_BASE"
+    fi
+    
+    # If RES_BASE is empty but RES_DIR is set, make them the same
+    if [ -z "$RES_BASE" ] && [ ! -z "$RES_DIR" ]; then
+      RES_BASE="$RES_DIR"
+    fi
+    
+    if [ ! -z "$RES_DIR" ]; then
+      log INFO "Using resources: $RES_DIR"
+    fi
+  fi
+
   # Check if subfunction script exists
   if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
     log ERROR "Subfunction script '$SUBFUNC' not found in module '$MODULE'"
@@ -520,6 +599,11 @@ run_module() {
       export ssh_user="$SSH_USER"
       export tgt_host="$HOST"
       
+      # Export resource variables
+      export RES_DIR="$RES_DIR"
+      export RES_BASE="$RES_BASE"
+      export res_profile="$res_profile"
+      
       # Export any provided environment variables
       if [ -f "$ENV_FILE" ]; then
         while IFS= read -r line; do
@@ -566,6 +650,60 @@ run_module() {
     exit 1
   fi
 
+  # Mount resources directory if it exists
+  REMOTE_RES_DIR=""
+  REMOTE_RES_BASE=""
+  if [ ! -z "$RES_DIR" ] && [ -d "$RES_DIR" ]; then
+    log INFO "Setting up resources file sharing..."
+    
+    # Create remote resources mount point
+    REMOTE_RES_DIR=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-res-XXXXXX")
+    
+    if [ -z "$REMOTE_RES_DIR" ]; then
+      log ERROR "Failed to create resources directory on remote host"
+      exit 1
+    fi
+    
+    # Mount resources using a separate FIFO
+    RES_FIFO="/tmp/yamc-res-fifo-$$"
+    log DEBUG "Creating resources named pipe: $RES_FIFO"
+    mkfifo -m600 "$RES_FIFO"
+    
+    # Create the remote directory and mount
+    ssh "$SSH_USER@$HOST" "mkdir -p \"$REMOTE_RES_DIR\""
+    
+    log DEBUG "Starting SFTP server for resources"
+    < "$RES_FIFO" "$SFTP_SERVER" | ssh "$SSH_USER@$HOST" "sshfs -o slave \":$RES_DIR\" \"$REMOTE_RES_DIR\"" > "$RES_FIFO" &
+    
+    # Give it a moment to connect
+    sleep 2
+    
+    # Verify the mount was successful
+    local res_mount_check=$(ssh "$SSH_USER@$HOST" "[ -d \"$REMOTE_RES_DIR/\" ] && ls -la \"$REMOTE_RES_DIR/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'")
+    
+    if [ "$res_mount_check" != "mounted" ]; then
+      log ERROR "Failed to mount resources directory. SSHFS mount unsuccessful."
+      rm -f "$RES_FIFO"
+      exit 1
+    fi
+    
+    # Set globals for cleanup
+    REMOTE_RES_MOUNT="$REMOTE_RES_DIR"
+    RES_FIFO_PATH="$RES_FIFO"
+    
+    log INFO "Resources sharing established: $RES_DIR -> $SSH_USER@$HOST:$REMOTE_RES_DIR"
+    
+    # Also mount RES_BASE if different from RES_DIR
+    if [ ! -z "$RES_BASE" ] && [ "$RES_BASE" != "$RES_DIR" ] && [ -d "$RES_BASE" ]; then
+      # For simplicity, we'll pass RES_BASE path but not mount it separately
+      # Scripts can use RES_BASE for local fallback logic in .loc scripts
+      REMOTE_RES_BASE="$RES_BASE"
+      log DEBUG "RES_BASE differs from RES_DIR - remote scripts should use RES_DIR only"
+    else
+      REMOTE_RES_BASE="$REMOTE_RES_DIR"
+    fi
+  fi
+
   # Prepare environment variables for remote execution
   ENV_EXPORTS=""
   if [ -f "$ENV_FILE" ]; then
@@ -588,11 +726,17 @@ run_module() {
   # Extract the relative path of MOD_TMP from MOD_DIR
   RELATIVE_TMP=${MOD_TMP#$MOD_DIR/}
   
+  # Build resource exports for remote execution
+  RES_EXPORTS=""
+  if [ ! -z "$REMOTE_RES_DIR" ]; then
+    RES_EXPORTS="RES_DIR=$REMOTE_RES_DIR RES_BASE=$REMOTE_RES_DIR res_profile=\"$res_profile\" "
+  fi
+  
   # Run the remote script
   log INFO "Running remote script: $SUBFUNC"
-  log DEBUG "Remote command: cd $REMOTE_TMP && $ENV_EXPORTS MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
+  log DEBUG "Remote command: cd $REMOTE_TMP && $ENV_EXPORTS ${RES_EXPORTS}MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
 
-  ssh -t -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "cd $REMOTE_TMP && $ENV_EXPORTS MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
+  ssh -t -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "cd $REMOTE_TMP && $ENV_EXPORTS ${RES_EXPORTS}MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
 
   RESULT=$?
   if [ $RESULT -ne 0 ]; then
@@ -611,6 +755,8 @@ run_module() {
 # Initialize default values as globals
 SSH_USER="${YAMC_USER:-$(whoami)}"  # Use YAMC_USER if set, otherwise current user
 HOST="${YAMC_HOST:-}"  # Use YAMC_HOST environment variable if set
+PROFILE="${YAMC_PROFILE:-}"  # Use YAMC_PROFILE environment variable if set
+RESOURCES_PATH="${YAMC_RESOURCES:-}"  # Use YAMC_RESOURCES environment variable if set
 MODULE=""
 SUBFUNC="setup"
 ENV_VARS=()
@@ -630,10 +776,12 @@ else
   original_args=("$@")
   
   # Parse just the options, stop at first non-option argument
-  while getopts ":h:u:e:vt:" opt; do
+  while getopts ":h:u:p:r:e:vt:" opt; do
     case $opt in
       h) HOST="$OPTARG" ;;
       u) SSH_USER="$OPTARG" ;;
+      p) PROFILE="$OPTARG" ;;
+      r) RESOURCES_PATH="$OPTARG" ;;
       e) ENV_VARS+=("$OPTARG") ;;
       v) VERBOSE=true ;;
       t) SSH_TIMEOUT="$OPTARG" ;;

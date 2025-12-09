@@ -1,0 +1,78 @@
+#!/bin/bash
+# named/edit.loc - Edit DNS configuration files locally
+#
+# This script opens your editor on the authoritative DNS configuration files.
+# After editing, the changes will be deployed by the remote 'edit' script.
+
+echo "===== Edit DNS Configuration ====="
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: No resources directory specified or directory not found."
+  echo "Usage: yamc -h hostname -u root named edit"
+  echo ""
+  echo "Make sure you have a yamc.local/named/ directory with your DNS files,"
+  echo "or specify a resources path with -r /path/to/resources"
+  exit 1
+fi
+
+echo "Resources directory: $RES_DIR"
+
+# Build list of files to edit
+FILES_TO_EDIT=()
+
+# Always include named.conf if it exists
+if [ -f "$RES_DIR/named.conf" ]; then
+  FILES_TO_EDIT+=("$RES_DIR/named.conf")
+fi
+
+# Include named.local if it exists
+if [ -f "$RES_DIR/named.local" ]; then
+  FILES_TO_EDIT+=("$RES_DIR/named.local")
+fi
+
+# Include zone files
+if [ -d "$RES_DIR/zones" ]; then
+  for zonefile in "$RES_DIR/zones/"*; do
+    if [ -f "$zonefile" ]; then
+      FILES_TO_EDIT+=("$zonefile")
+    fi
+  done
+fi
+
+# Check if we have files to edit
+if [ ${#FILES_TO_EDIT[@]} -eq 0 ]; then
+  echo "ERROR: No DNS configuration files found in $RES_DIR"
+  echo "Expected files:"
+  echo "  - named.conf"
+  echo "  - named.local (optional)"
+  echo "  - zones/ directory with zone files"
+  exit 1
+fi
+
+# Create backups before editing
+echo "Creating backups..."
+for file in "${FILES_TO_EDIT[@]}"; do
+  if [ -f "$file" ]; then
+    cp "$file" "${file}.bak"
+  fi
+done
+
+# Show what we're editing
+echo ""
+echo "Opening editor for:"
+for file in "${FILES_TO_EDIT[@]}"; do
+  echo "  - $(basename "$file")"
+done
+echo ""
+
+# Use EDITOR environment variable, default to nano
+EDIT_CMD="${EDITOR:-nano}"
+
+# Open editor
+$EDIT_CMD "${FILES_TO_EDIT[@]}"
+
+echo ""
+echo "Editing complete. Changes will be deployed to $tgt_host..."
+echo ""
+
