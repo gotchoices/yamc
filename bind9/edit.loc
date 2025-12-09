@@ -31,10 +31,14 @@ if [ -f "$RES_DIR/named.local" ]; then
   FILES_TO_EDIT+=("$RES_DIR/named.local")
 fi
 
-# Include zone files
+# Include zone files (excluding backups)
 if [ -d "$RES_DIR/zones" ]; then
   for zonefile in "$RES_DIR/zones/"*; do
     if [ -f "$zonefile" ]; then
+      # Skip backup files
+      case "$zonefile" in
+        *.bak|*.old|*.orig|*~) continue ;;
+      esac
       FILES_TO_EDIT+=("$zonefile")
     fi
   done

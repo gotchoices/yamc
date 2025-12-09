@@ -58,9 +58,9 @@ if [ -d "$RES_DIR/zones" ]; then
     if [ -f "$zonefile" ]; then
       filename=$(basename "$zonefile")
       # Skip backup files
-      if [[ "$filename" == *.bak ]]; then
-        continue
-      fi
+      case "$filename" in
+        *.bak|*.old|*.orig|*~) continue ;;
+      esac
       echo "  Copying $filename..."
       cp "$zonefile" "$BIND_ZONE_DIR/$filename"
       chown $BIND_USER:$BIND_GROUP "$BIND_ZONE_DIR/$filename"
