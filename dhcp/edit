@@ -1,0 +1,72 @@
+#!/bin/bash
+# dhcp/edit - Deploy edited DHCP configuration to the server
+#
+# This script is run after edit.loc has allowed the user to edit
+# their authoritative configuration file locally.
+# Targeted for Ubuntu/Debian systems.
+
+set -e  # Exit on any error
+
+echo "===== Deploying DHCP Configuration ====="
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: Resources directory not available."
+  exit 1
+fi
+
+echo "Deploying from: $RES_DIR"
+
+# Check for required files
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in resources directory"
+  exit 1
+fi
+
+# Ubuntu/Debian paths
+DHCP_CONF_DIR="/etc/dhcp"
+DHCP_SERVICE="isc-dhcp-server"
+
+# Deploy dhcpd.conf
+echo "Deploying dhcpd.conf..."
+cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
+chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
+chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
+
+# Verify configuration before restarting
+echo ""
+echo "Verifying configuration..."
+if ! dhcpd -t -cf "$DHCP_CONF_DIR/dhcpd.conf" 2>&1; then
+  echo "ERROR: Configuration syntax check failed!"
+  echo "The service has NOT been restarted."
+  echo "Please fix the configuration and try again."
+  exit 1
+fi
+echo "Configuration syntax OK"
+
+# Restart service
+echo ""
+echo "Restarting $DHCP_SERVICE service..."
+systemctl restart "$DHCP_SERVICE"
+
+# Verify service is running
+sleep 2
+if systemctl is-active --quiet "$DHCP_SERVICE"; then
+  echo "$DHCP_SERVICE service restarted successfully"
+else
+  echo "ERROR: $DHCP_SERVICE service failed to restart"
+  echo "Check: journalctl -u $DHCP_SERVICE"
+  systemctl status "$DHCP_SERVICE"
+  exit 1
+fi
+
+echo ""
+echo "===== DHCP Configuration Deployed Successfully ====="
+exit 0
+

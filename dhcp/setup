@@ -1,0 +1,127 @@
+#!/bin/bash
+# dhcp/setup - Install and configure ISC DHCP Server
+#
+# This script installs ISC DHCP Server and deploys your authoritative configuration.
+# Targeted for Ubuntu/Debian systems.
+#
+# Usage: yamc -h hostname -u root dhcp
+# Resources required: dhcpd.conf
+
+set -e  # Exit on any error
+
+echo "===== Installing ISC DHCP Server ====="
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: No resources directory specified or directory not found."
+  echo "Usage: yamc -h hostname -u root dhcp"
+  echo "Or create yamc.local/dhcp/ with your dhcpd.conf."
+  exit 1
+fi
+
+echo "Using resources from: $RES_DIR"
+
+# Check for required files
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in resources directory"
+  exit 1
+fi
+
+# Ubuntu/Debian paths
+DHCP_CONF_DIR="/etc/dhcp"
+DHCP_SERVICE="isc-dhcp-server"
+DHCP_DEFAULTS="/etc/default/isc-dhcp-server"
+
+# Install DHCP server if not present
+if ! dpkg -l isc-dhcp-server >/dev/null 2>&1; then
+  echo "Installing ISC DHCP Server..."
+  apt-get update -q
+  apt-get install -y isc-dhcp-server
+fi
+
+echo "ISC DHCP Server installed"
+
+# Stop service before configuration
+echo "Stopping $DHCP_SERVICE service..."
+systemctl stop "$DHCP_SERVICE" 2>/dev/null || true
+
+# Create config directory if needed
+mkdir -p "$DHCP_CONF_DIR"
+
+# Backup existing configuration
+if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && [ ! -f "$DHCP_CONF_DIR/dhcpd.conf.orig" ]; then
+  echo "Backing up original dhcpd.conf..."
+  cp "$DHCP_CONF_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf.orig"
+fi
+
+# Deploy dhcpd.conf
+echo "Deploying dhcpd.conf..."
+cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
+chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
+chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
+
+# Check if interface is configured
+if [ -f "$DHCP_DEFAULTS" ]; then
+  if grep -q '^INTERFACESv4=""' "$DHCP_DEFAULTS" || ! grep -q '^INTERFACESv4=' "$DHCP_DEFAULTS"; then
+    echo ""
+    echo "WARNING: No network interface configured for DHCP server."
+    echo "You may need to edit $DHCP_DEFAULTS and set INTERFACESv4=\"eth0\""
+    echo "(Replace eth0 with your actual interface name)"
+    echo ""
+    
+    # Try to detect the main interface
+    MAIN_IF=$(ip route | grep default | awk '{print $5}' | head -1)
+    if [ ! -z "$MAIN_IF" ]; then
+      echo "Detected main interface: $MAIN_IF"
+      read -p "Configure DHCP to listen on $MAIN_IF? (y/N) " confirm
+      if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        sed -i "s/^INTERFACESv4=.*/INTERFACESv4=\"$MAIN_IF\"/" "$DHCP_DEFAULTS"
+        echo "Set INTERFACESv4=\"$MAIN_IF\""
+      fi
+    fi
+  fi
+fi
+
+# Verify configuration syntax
+echo "Verifying DHCP configuration..."
+if dhcpd -t -cf "$DHCP_CONF_DIR/dhcpd.conf" 2>&1; then
+  echo "Configuration syntax OK"
+else
+  echo "ERROR: Configuration syntax check failed"
+  exit 1
+fi
+
+# Enable and start service
+echo "Enabling $DHCP_SERVICE service..."
+systemctl enable "$DHCP_SERVICE"
+
+echo "Starting $DHCP_SERVICE service..."
+systemctl start "$DHCP_SERVICE"
+
+# Verify service is running
+sleep 2
+if systemctl is-active --quiet "$DHCP_SERVICE"; then
+  echo "$DHCP_SERVICE service is running"
+else
+  echo "ERROR: $DHCP_SERVICE service failed to start"
+  echo "Check: journalctl -u $DHCP_SERVICE"
+  systemctl status "$DHCP_SERVICE"
+  exit 1
+fi
+
+echo "===== ISC DHCP Server Installation Complete ====="
+echo ""
+echo "Service status: $(systemctl is-active $DHCP_SERVICE)"
+echo "Configuration: $DHCP_CONF_DIR/dhcpd.conf"
+echo ""
+echo "To edit configuration in the future, run:"
+echo "  yamc -h $(hostname) -u root dhcp edit"
+echo ""
+exit 0
+
