@@ -25,7 +25,7 @@ A directory tree parallel to the YAMC modules structure, containing your configu
 
 ```
 yamc.local/                    # Resources directory (sibling to yamc/)
-├── named/                     # Resources for the 'named' module
+├── bind9/                     # Resources for the 'bind9' module
 │   ├── named.conf             # Your authoritative named.conf
 │   ├── named.local            # Local zone includes
 │   └── zones/                 # Zone files
@@ -43,19 +43,19 @@ Profiles allow variations of the same module configuration. For example, a DNS m
 
 ```
 yamc.local/
-├── named/                     # Default profile (no profile specified)
+├── bind9/                     # Default profile (no profile specified)
 │   └── ...
-├── named.master/              # "master" profile
+├── bind9.master/              # "master" profile
 │   └── ...
-└── named.slave/               # "slave" profile
+└── bind9.slave/               # "slave" profile
     └── ...
 ```
 
 Usage:
 ```bash
-yamc -h primary-dns named setup              # Uses named/ (default)
-yamc -h primary-dns -p master named setup    # Uses named.master/
-yamc -h secondary-dns -p slave named setup   # Uses named.slave/
+yamc -h primary-dns bind9 setup              # Uses bind9/ (default)
+yamc -h primary-dns -p master bind9 setup    # Uses bind9.master/
+yamc -h secondary-dns -p slave bind9 setup   # Uses bind9.slave/
 ```
 
 If no profile is specified, the base module directory is used (simple default case).
@@ -105,7 +105,7 @@ The recommended pattern for maintaining configurations:
 
 This keeps editing on your local machine where your editor preferences and tools are available, while deployment happens on the target server.
 
-### Example: named/edit.loc (local script)
+### Example: bind9/edit.loc (local script)
 
 ```bash
 #!/bin/bash
@@ -123,7 +123,7 @@ cp "$RES_DIR/named.conf" "$RES_DIR/named.conf.bak"
 $EDITOR "$RES_DIR/named.conf" "$RES_DIR/zones/"*
 ```
 
-### Example: named/edit (remote script)
+### Example: bind9/edit (remote script)
 
 ```bash
 #!/bin/bash
@@ -159,7 +159,7 @@ A complete setup might look like:
 ~/share/systems/
 ├── yamc/                      # YAMC repository (public/shared)
 │   ├── yamc                   # Main script
-│   ├── named/                 # Named module scripts
+│   ├── bind9/                 # BIND9 module scripts
 │   │   ├── setup              # Initial installation
 │   │   ├── setup.loc
 │   │   ├── edit               # Edit and deploy configs
@@ -168,13 +168,13 @@ A complete setup might look like:
 │       └── ...
 │
 └── yamc.local/                # Your local resources (private)
-    ├── named/                 # Default named resources
+    ├── bind9/                 # Default bind9 resources
     │   ├── named.conf
     │   └── zones/
-    ├── named.master/          # Master server profile
+    ├── bind9.master/          # Master server profile
     │   ├── named.conf
     │   └── zones/
-    └── named.slave/           # Slave server profile
+    └── bind9.slave/           # Slave server profile
         └── named.conf
 ```
 
@@ -184,8 +184,8 @@ If you're migrating from snap's `site.<name>/` structure:
 
 | Snap | YAMC |
 |------|------|
-| `site.mysite/named/` | `yamc.local/named/` |
-| `site.mysite/named/named.conf` | `yamc.local/named/named.conf` |
+| `site.mysite/named/` | `yamc.local/bind9/` |
+| `site.mysite/named/named.conf` | `yamc.local/bind9/named.conf` |
 | `$sitedir` variable | `$RES_DIR` variable |
 
 The concepts map directly - snap's site-specific overlays become YAMC's local resources.

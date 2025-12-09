@@ -155,7 +155,7 @@ Current implemented modules:
 Planned modules:
 - `upgrade`: Upgrade all packages
 - `dhcp`: Configure the machine as a DHCP server
-- `named`: Configure the machine as a DNS server
+- `bind9`: Configure the machine as a DNS server
 - `mailserver`: Set up a mail server
 
 ## Installation
