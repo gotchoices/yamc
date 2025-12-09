@@ -32,7 +32,7 @@ fi
 # Ubuntu/Debian paths
 BIND_CONF_DIR="/etc/bind"
 BIND_ZONE_DIR="/var/lib/bind"
-BIND_SERVICE="bind9"
+BIND_SERVICE="named"  # Note: package is bind9, but service unit is named
 BIND_USER="bind"
 BIND_GROUP="bind"
 
