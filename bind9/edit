@@ -36,24 +36,39 @@ BIND_SERVICE="named"  # Note: package is bind9, but service unit is named
 BIND_USER="bind"
 BIND_GROUP="bind"
 
+# Track if any files changed
+FILES_CHANGED=0
+
+# Helper function to copy file only if changed
+copy_if_changed() {
+  local src="$1"
+  local dst="$2"
+  local owner="$3"
+  local mode="$4"
+  
+  if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
+    cp "$src" "$dst"
+    chown "$owner" "$dst"
+    chmod "$mode" "$dst"
+    echo "  Updated: $(basename "$dst")"
+    FILES_CHANGED=1
+  else
+    echo "  Unchanged: $(basename "$dst")"
+  fi
+}
+
+echo "Checking for changes..."
+
 # Deploy named.conf
-echo "Deploying named.conf..."
-cp "$RES_DIR/named.conf" "$BIND_CONF_DIR/named.conf"
-chown root:$BIND_GROUP "$BIND_CONF_DIR/named.conf"
-chmod 640 "$BIND_CONF_DIR/named.conf"
+copy_if_changed "$RES_DIR/named.conf" "$BIND_CONF_DIR/named.conf" "root:$BIND_GROUP" "640"
 
 # Deploy named.local if it exists
 if [ -f "$RES_DIR/named.local" ]; then
-  echo "Deploying named.local..."
-  cp "$RES_DIR/named.local" "$BIND_CONF_DIR/named.local"
-  chown root:$BIND_GROUP "$BIND_CONF_DIR/named.local"
-  chmod 640 "$BIND_CONF_DIR/named.local"
+  copy_if_changed "$RES_DIR/named.local" "$BIND_CONF_DIR/named.local" "root:$BIND_GROUP" "640"
 fi
 
 # Deploy zone files
 if [ -d "$RES_DIR/zones" ]; then
-  echo "Deploying zone files..."
-  
   for zonefile in "$RES_DIR/zones/"*; do
     if [ -f "$zonefile" ]; then
       filename=$(basename "$zonefile")
@@ -61,12 +76,17 @@ if [ -d "$RES_DIR/zones" ]; then
       case "$filename" in
         *.bak|*.old|*.orig|*~) continue ;;
       esac
-      echo "  Copying $filename..."
-      cp "$zonefile" "$BIND_ZONE_DIR/$filename"
-      chown $BIND_USER:$BIND_GROUP "$BIND_ZONE_DIR/$filename"
-      chmod 640 "$BIND_ZONE_DIR/$filename"
+      copy_if_changed "$zonefile" "$BIND_ZONE_DIR/$filename" "$BIND_USER:$BIND_GROUP" "640"
     fi
   done
+fi
+
+# Check if anything changed
+if [ $FILES_CHANGED -eq 0 ]; then
+  echo ""
+  echo "No files changed. Service restart not needed."
+  echo "===== DNS Configuration Unchanged ====="
+  exit 0
 fi
 
 # Verify configuration before restarting

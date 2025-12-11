@@ -33,8 +33,18 @@ fi
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 
+# Check if file changed
+echo "Checking for changes..."
+if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && cmp -s "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"; then
+  echo "  Unchanged: dhcpd.conf"
+  echo ""
+  echo "No files changed. Service restart not needed."
+  echo "===== DHCP Configuration Unchanged ====="
+  exit 0
+fi
+
 # Deploy dhcpd.conf
-echo "Deploying dhcpd.conf..."
+echo "  Updated: dhcpd.conf"
 cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
 chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
 chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
