@@ -39,6 +39,16 @@ Edit your authoritative DNS files locally, then deploy:
 yamc -h dns-server -u root bind9 edit
 ```
 
+### View Configuration (Read-Only)
+
+View your DNS config without deploying:
+
+```bash
+yamc -h dns-server bind9 view
+```
+
+Changes made in the editor are NOT deployed. Use `edit` to deploy.
+
 ### Watch Logs
 
 Watch DNS queries in real-time:

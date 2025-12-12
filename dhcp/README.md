@@ -35,6 +35,16 @@ Edit your authoritative DHCP config locally, then deploy:
 yamc -h dhcp-server -u root dhcp edit
 ```
 
+### View Configuration (Read-Only)
+
+View your DHCP config without deploying:
+
+```bash
+yamc -h dhcp-server dhcp view
+```
+
+Changes made in the editor are NOT deployed. Use `edit` to deploy.
+
 ### Watch Logs
 
 Watch DHCP requests in real-time:

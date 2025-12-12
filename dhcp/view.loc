@@ -1,0 +1,37 @@
+#!/bin/bash
+# dhcp/view.loc - View DHCP configuration (read-only, no deploy)
+#
+# This is a local-only module that opens the config in your editor
+# for viewing without deploying changes to the remote host.
+#
+# Usage: yamc -h dhcp-server dhcp view
+
+echo "===== View DHCP Configuration (Read-Only) ====="
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: No resources directory found."
+  echo "Make sure yamc.local/dhcp/ exists with your dhcpd.conf"
+  exit 1
+fi
+
+# Check for config file
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in $RES_DIR"
+  exit 1
+fi
+
+echo "Resources: $RES_DIR"
+echo "Opening in editor (changes will NOT be deployed)..."
+echo ""
+
+# Use EDITOR environment variable, default to nano
+EDIT_CMD="${EDITOR:-nano}"
+
+# Open editor
+$EDIT_CMD "$RES_DIR/dhcpd.conf"
+
+echo ""
+echo "View complete. No changes were deployed."
+echo "To deploy changes, use: yamc -h $tgt_host -u root dhcp edit"
+

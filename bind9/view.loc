@@ -1,0 +1,66 @@
+#!/bin/bash
+# bind9/view.loc - View DNS configuration (read-only, no deploy)
+#
+# This is a local-only module that opens the config files in your editor
+# for viewing without deploying changes to the remote host.
+#
+# Usage: yamc -h dns-server bind9 view
+
+echo "===== View DNS Configuration (Read-Only) ====="
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: No resources directory found."
+  echo "Make sure yamc.local/bind9/ exists with your DNS files"
+  exit 1
+fi
+
+echo "Resources: $RES_DIR"
+
+# Build list of files to view
+FILES_TO_VIEW=()
+
+# Include named.conf if it exists
+if [ -f "$RES_DIR/named.conf" ]; then
+  FILES_TO_VIEW+=("$RES_DIR/named.conf")
+fi
+
+# Include named.local if it exists
+if [ -f "$RES_DIR/named.local" ]; then
+  FILES_TO_VIEW+=("$RES_DIR/named.local")
+fi
+
+# Include zone files (excluding backups)
+if [ -d "$RES_DIR/zones" ]; then
+  for zonefile in "$RES_DIR/zones/"*; do
+    if [ -f "$zonefile" ]; then
+      case "$zonefile" in
+        *.bak|*.old|*.orig|*~) continue ;;
+      esac
+      FILES_TO_VIEW+=("$zonefile")
+    fi
+  done
+fi
+
+# Check if we have files to view
+if [ ${#FILES_TO_VIEW[@]} -eq 0 ]; then
+  echo "ERROR: No DNS configuration files found in $RES_DIR"
+  exit 1
+fi
+
+echo "Opening in editor (changes will NOT be deployed):"
+for file in "${FILES_TO_VIEW[@]}"; do
+  echo "  - $(basename "$file")"
+done
+echo ""
+
+# Use EDITOR environment variable, default to nano
+EDIT_CMD="${EDITOR:-nano}"
+
+# Open editor
+$EDIT_CMD "${FILES_TO_VIEW[@]}"
+
+echo ""
+echo "View complete. No changes were deployed."
+echo "To deploy changes, use: yamc -h $tgt_host -u root bind9 edit"
+
