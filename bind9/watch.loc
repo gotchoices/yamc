@@ -1,0 +1,15 @@
+#!/bin/bash
+# bind9/watch.loc - Watch BIND DNS server logs in real-time
+#
+# This is a local-only module - it runs ssh directly without
+# the SSHFS machinery since no file sharing is needed.
+#
+# Usage: yamc -h dns-server -u root bind9 watch
+
+echo "===== Watching BIND9 Logs on $tgt_host ====="
+echo "Press Ctrl+C to stop"
+echo ""
+
+# SSH to the host and tail the named logs
+exec ssh -t "$ssh_user@$tgt_host" "journalctl -u named -f"
+

@@ -35,6 +35,18 @@ Edit your authoritative DHCP config locally, then deploy:
 yamc -h dhcp-server -u root dhcp edit
 ```
 
+### Watch Logs
+
+Watch DHCP requests in real-time:
+
+```bash
+yamc -h dhcp-server -u root dhcp watch
+```
+
+Press Ctrl+C to stop.
+
+### Edit Configuration
+
 This will:
 1. Open your editor with the configuration file (locally)
 2. After you save and exit, deploy the updated file to the server

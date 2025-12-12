@@ -1,0 +1,15 @@
+#!/bin/bash
+# dhcp/watch.loc - Watch DHCP server logs in real-time
+#
+# This is a local-only module - it runs ssh directly without
+# the SSHFS machinery since no file sharing is needed.
+#
+# Usage: yamc -h dhcp-server -u root dhcp watch
+
+echo "===== Watching DHCP Logs on $tgt_host ====="
+echo "Press Ctrl+C to stop"
+echo ""
+
+# SSH to the host and tail the DHCP logs
+exec ssh -t "$ssh_user@$tgt_host" "journalctl -u isc-dhcp-server -f"
+

@@ -445,9 +445,10 @@ run_module() {
   )
   
   # Find the module directory
+  # A valid module has either a 'setup' script or a 'setup.loc' script
   MOD_DIR=""
   for path in "${MODULE_PATHS[@]}"; do
-    if [ -d "$path" ] && [ -f "$path/setup" ]; then
+    if [ -d "$path" ] && ( [ -f "$path/setup" ] || [ -f "$path/setup.loc" ] ); then
       MOD_DIR="$path"
       break
     fi
@@ -533,10 +534,55 @@ run_module() {
     fi
   fi
 
-  # Check if subfunction script exists
+  # Check if subfunction script exists (either remote or local-only)
+  LOCAL_ONLY=false
   if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
-    log ERROR "Subfunction script '$SUBFUNC' not found in module '$MODULE'"
-    exit 1
+    if [ -f "$MOD_DIR/${SUBFUNC}.loc" ]; then
+      # Local-only module - no remote script, just .loc
+      LOCAL_ONLY=true
+      log DEBUG "Detected local-only module: $MODULE/$SUBFUNC"
+    else
+      log ERROR "Neither '$SUBFUNC' nor '${SUBFUNC}.loc' found in module '$MODULE'"
+      exit 1
+    fi
+  fi
+  
+  #
+  # Handle Local-Only Modules
+  #
+  if [ "$LOCAL_ONLY" = true ]; then
+    log INFO "Running local-only: $MODULE/$SUBFUNC"
+    
+    # Run the local script without SSH/SSHFS setup
+    (
+      # Export environment variables for the local script
+      export MOD_DIR="$MOD_DIR"
+      export MOD_TMP="$MOD_TMP"
+      export RES_DIR="$RES_DIR"
+      export RES_BASE="$RES_BASE"
+      export res_profile="$res_profile"
+      export ssh_user="$SSH_USER"
+      export tgt_host="$HOST"
+      
+      # Export any -e flag variables
+      for var in "${ENV_VARS[@]}"; do
+        var_name="${var%%=*}"
+        var_value="${var#*=}"
+        export "$var_name"="$var_value"
+      done
+      
+      # Source the local script with additional args
+      source "$MOD_DIR/${SUBFUNC}.loc" "${MODULE_ARGS[@]}"
+    )
+    
+    LOCAL_EXIT=$?
+    
+    # Clean up temp directory
+    if [ ! -z "$MOD_TMP" ] && [[ "$MOD_TMP" == *"tmp-"* ]] && [ -d "$MOD_TMP" ]; then
+      rm -rf "$MOD_TMP" 2>/dev/null || true
+    fi
+    
+    exit $LOCAL_EXIT
   fi
 
   # Check if host has been initialized

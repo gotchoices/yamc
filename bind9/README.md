@@ -39,6 +39,18 @@ Edit your authoritative DNS files locally, then deploy:
 yamc -h dns-server -u root bind9 edit
 ```
 
+### Watch Logs
+
+Watch DNS queries in real-time:
+
+```bash
+yamc -h dns-server -u root bind9 watch
+```
+
+Press Ctrl+C to stop.
+
+### Edit Configuration
+
 This will:
 1. Open your editor with the configuration files (locally)
 2. After you save and exit, deploy the updated files to the server
