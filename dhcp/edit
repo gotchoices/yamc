@@ -3,6 +3,7 @@
 #
 # This script is run after edit.loc has allowed the user to edit
 # their configuration file locally.
+# Automatically detects and deploys files referenced by 'include' statements.
 # Targeted for Ubuntu/Debian systems.
 #
 # Usage:
@@ -35,6 +36,73 @@ echo "Edit target: $TARGET"
 # Ubuntu/Debian paths
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
+
+# Function to find local file for an include path
+# Tries: exact basename, without dhcpd- prefix
+find_local_include() {
+  local remote_path="$1"
+  local basename=$(basename "$remote_path")
+  
+  # Try exact basename (e.g., dhcpd-hosts.conf)
+  if [ -f "$RES_DIR/$basename" ]; then
+    echo "$basename"
+    return 0
+  fi
+  
+  # Try without dhcpd- prefix (e.g., hosts.conf)
+  local short_name="${basename#dhcpd-}"
+  if [ -f "$RES_DIR/$short_name" ]; then
+    echo "$short_name"
+    return 0
+  fi
+  
+  # Not found
+  return 1
+}
+
+# Function to deploy include files from a config
+# Scans for 'include' statements and deploys referenced files
+# Returns: space-separated list of deployed paths, sets INCLUDE_CHANGED=1 if any changed
+deploy_includes() {
+  local config_file="$1"
+  local source_file="$2"  # Local source file to scan
+  local deployed_includes=""
+  INCLUDE_CHANGED=0
+  
+  # Extract include paths from source config file
+  # Matches: include "/path/to/file";
+  local includes=$(grep -E '^\s*include\s+"[^"]+"' "$source_file" 2>/dev/null | \
+                   sed 's/.*include\s*"\([^"]*\)".*/\1/' || true)
+  
+  if [ -z "$includes" ]; then
+    return 0
+  fi
+  
+  for remote_path in $includes; do
+    local local_file=$(find_local_include "$remote_path")
+    
+    if [ -z "$local_file" ]; then
+      echo "ERROR: Cannot find local file for include: $remote_path"
+      echo "  Looked for: $(basename "$remote_path") or $(basename "$remote_path" | sed 's/^dhcpd-//')"
+      echo "  In directory: $RES_DIR"
+      exit 1
+    fi
+    
+    # Check if file changed
+    if [ -f "$remote_path" ] && cmp -s "$RES_DIR/$local_file" "$remote_path"; then
+      echo "  Unchanged: $local_file -> $remote_path"
+    else
+      echo "  Updated: $local_file -> $remote_path"
+      cp "$RES_DIR/$local_file" "$remote_path"
+      chown root:root "$remote_path"
+      chmod 644 "$remote_path"
+      INCLUDE_CHANGED=1
+    fi
+    deployed_includes="$deployed_includes $remote_path"
+  done
+  
+  echo "$deployed_includes"
+}
 
 # Determine which files to deploy based on edit target
 case "$TARGET" in
@@ -103,9 +171,16 @@ if [ -n "$DEPLOY_MAIN" ]; then
     chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
     CHANGED=1
   fi
+  
+  # Auto-detect and deploy any include files from the main config
+  INCLUDE_CHANGED=0
+  EXTRA_INCLUDES=$(deploy_includes "$DHCP_CONF_DIR/dhcpd.conf" "$RES_DIR/$DEPLOY_MAIN")
+  if [ "$INCLUDE_CHANGED" -eq 1 ]; then
+    CHANGED=1
+  fi
 fi
 
-# Check and deploy hosts file
+# Check and deploy hosts file (explicit, for failover or hosts-only edit)
 if [ -n "$DEPLOY_HOSTS" ]; then
   if [ -f "$DHCP_CONF_DIR/dhcpd-hosts.conf" ] && cmp -s "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"; then
     echo "  Unchanged: $DEPLOY_HOSTS -> dhcpd-hosts.conf"

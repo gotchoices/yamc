@@ -2,6 +2,7 @@
 
 This module installs and configures ISC DHCP Server on a remote Ubuntu system.
 Supports both standalone and failover (two-server) configurations.
+Automatically detects and deploys files referenced by `include` statements.
 
 ## Prerequisites
 
@@ -14,6 +15,7 @@ Supports both standalone and failover (two-server) configurations.
 ### Standalone Mode
 
 Single DHCP server with one configuration file. Good for simple setups.
+Can use `include` statements to split configuration into multiple files.
 
 ### Failover Mode
 
@@ -31,30 +33,76 @@ Benefits:
 
 ```
 yamc.local/dhcp/
-└── dhcpd.conf           # Complete DHCP configuration
+├── dhcpd.conf           # Main DHCP configuration
+└── hosts.conf           # (Optional) Host declarations via include
 ```
 
 ### Failover Mode
 
 ```
 yamc.local/dhcp/
-├── cluster.conf         # Defines primary/secondary hostnames
 ├── primary.conf         # Failover config for primary server
 ├── secondary.conf       # Failover config for secondary server
 └── hosts.conf           # Shared host declarations (MAC/IP bindings)
 ```
 
-#### cluster.conf
+## Auto-Include Detection
 
-Defines your DHCP cluster members:
+The module automatically detects `include` statements in your configuration
+and deploys the referenced files alongside the main config.
 
-```bash
-# DHCP Failover Cluster Configuration
-DHCP_PRIMARY="pi-dhcp1"
-DHCP_SECONDARY="pi-dhcp2"
+### How It Works
+
+When deploying, the module scans the main config for lines like:
+
+```conf
+include "/etc/dhcp/dhcpd-hosts.conf";
 ```
 
-#### primary.conf / secondary.conf
+For each include, it looks for a matching local file:
+1. Exact basename: `dhcpd-hosts.conf`
+2. Without `dhcpd-` prefix: `hosts.conf`
+
+If found, the file is deployed to the remote path. If not found, an error
+is reported and deployment stops.
+
+### Example: Standalone with Includes
+
+**dhcpd.conf:**
+```conf
+authoritative;
+allow bootp;
+
+# Include shared host declarations
+include "/etc/dhcp/dhcpd-hosts.conf";
+```
+
+**hosts.conf:** (deployed as `/etc/dhcp/dhcpd-hosts.conf`)
+```conf
+option domain-name "example.org";
+subnet 192.168.2.0 netmask 255.255.255.0 { ... }
+group { ... }
+```
+
+Both files are deployed automatically with:
+```bash
+yamc -h dhcp-server -u root dhcp
+```
+
+### File Naming Convention
+
+| Local File | Deployed As |
+|------------|-------------|
+| `hosts.conf` | `/etc/dhcp/dhcpd-hosts.conf` |
+| `dhcpd-hosts.conf` | `/etc/dhcp/dhcpd-hosts.conf` |
+| `options.conf` | `/etc/dhcp/dhcpd-options.conf` |
+
+The module strips the `dhcpd-` prefix when searching, so you can use
+shorter local names.
+
+## Configuration Examples
+
+### primary.conf / secondary.conf
 
 Small files containing failover peer configuration and include directive:
 
@@ -62,9 +110,6 @@ Small files containing failover peer configuration and include directive:
 # primary.conf example
 authoritative;
 allow bootp;
-default-lease-time 604800;
-max-lease-time 31536000;
-ddns-update-style none;
 
 failover peer "dhcp-failover" {
   primary;
@@ -87,7 +132,7 @@ The `secondary.conf` is identical except:
 - `address` and `peer address` values swapped
 - No `mclt` or `split` directives (primary only)
 
-#### hosts.conf
+### hosts.conf
 
 Contains all your host declarations, groups, and subnet definitions:
 
@@ -95,6 +140,9 @@ Contains all your host declarations, groups, and subnet definitions:
 option domain-name "example.org";
 option domain-name-servers 192.168.2.10, 8.8.8.8;
 option subnet-mask 255.255.255.0;
+default-lease-time 604800;
+max-lease-time 31536000;
+ddns-update-style none;
 
 subnet 192.168.2.0 netmask 255.255.255.0 {
   option routers 192.168.2.1;
@@ -169,26 +217,24 @@ Edit the shared hosts file and deploy to one server:
 yamc -h pi-dhcp1 -u root dhcp edit hosts
 ```
 
-### Cluster Workflow (Yamcity)
+### Cluster Workflow (Helper Scripts)
 
-Edit hosts and deploy to both servers in one command:
+Helper scripts extract server IPs directly from primary.conf/secondary.conf,
+making those files the single source of truth.
 
-```bash
-yamcity yamc.local/profiles/dhcp-cluster
-```
-
-Profile contents:
-```
-# Edit hosts.conf, deploy to both cluster members
--h $DHCP_PRIMARY -u root dhcp deploy
--h $DHCP_SECONDARY -u root dhcp deploy
-```
-
-Or use the helper script:
+Edit hosts and deploy to both servers:
 
 ```bash
 dhcp-cluster-edit    # Opens editor, deploys to both
 ```
+
+Deploy only (after external edit):
+
+```bash
+dhcp-cluster-deploy  # Deploys to both without editing
+```
+
+These scripts are in `yamc.local/bin/` - add to your PATH or run directly.
 
 ### View Configuration (Read-Only)
 
@@ -217,6 +263,8 @@ Press Ctrl+C to stop.
 | Source | Destination |
 |--------|-------------|
 | `dhcpd.conf` | `/etc/dhcp/dhcpd.conf` |
+| `hosts.conf` | `/etc/dhcp/dhcpd-hosts.conf` (if included) |
+| *(other includes)* | *(as specified in include path)* |
 
 ### Failover Mode
 

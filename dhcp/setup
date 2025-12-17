@@ -3,6 +3,7 @@
 #
 # This script installs ISC DHCP Server and deploys your configuration.
 # Supports standalone mode (single server) and failover mode (primary/secondary).
+# Automatically detects and deploys files referenced by 'include' statements.
 # Targeted for Ubuntu/Debian systems.
 #
 # Usage:
@@ -11,7 +12,7 @@
 #   yamc -h hostname -u root dhcp secondary    # Failover secondary
 #
 # Resources required:
-#   Standalone: dhcpd.conf
+#   Standalone: dhcpd.conf (plus any files it includes)
 #   Failover:   primary.conf or secondary.conf, hosts.conf
 
 set -e  # Exit on any error
@@ -41,6 +42,66 @@ echo "Using resources from: $RES_DIR"
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 DHCP_DEFAULTS="/etc/default/isc-dhcp-server"
+
+# Function to find local file for an include path
+# Tries: exact basename, without dhcpd- prefix
+find_local_include() {
+  local remote_path="$1"
+  local basename=$(basename "$remote_path")
+  
+  # Try exact basename (e.g., dhcpd-hosts.conf)
+  if [ -f "$RES_DIR/$basename" ]; then
+    echo "$basename"
+    return 0
+  fi
+  
+  # Try without dhcpd- prefix (e.g., hosts.conf)
+  local short_name="${basename#dhcpd-}"
+  if [ -f "$RES_DIR/$short_name" ]; then
+    echo "$short_name"
+    return 0
+  fi
+  
+  # Not found
+  return 1
+}
+
+# Function to deploy include files from a config
+# Scans for 'include' statements and deploys referenced files
+deploy_includes() {
+  local config_file="$1"
+  local deployed_includes=""
+  
+  # Extract include paths from config file
+  # Matches: include "/path/to/file";
+  local includes=$(grep -E '^\s*include\s+"[^"]+"' "$config_file" 2>/dev/null | \
+                   sed 's/.*include\s*"\([^"]*\)".*/\1/' || true)
+  
+  if [ -z "$includes" ]; then
+    return 0
+  fi
+  
+  echo "Detected include statements in config..."
+  
+  for remote_path in $includes; do
+    local local_file=$(find_local_include "$remote_path")
+    
+    if [ -z "$local_file" ]; then
+      echo "ERROR: Cannot find local file for include: $remote_path"
+      echo "  Looked for: $(basename "$remote_path") or ${$(basename "$remote_path")#dhcpd-}"
+      echo "  In directory: $RES_DIR"
+      exit 1
+    fi
+    
+    echo "  Deploying $local_file -> $remote_path..."
+    cp "$RES_DIR/$local_file" "$remote_path"
+    chown root:root "$remote_path"
+    chmod 644 "$remote_path"
+    deployed_includes="$deployed_includes $remote_path"
+  done
+  
+  echo "$deployed_includes"
+}
 
 # Determine which files to deploy based on role
 case "$ROLE" in
@@ -111,13 +172,16 @@ cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
 chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
 chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
 
-# Deploy hosts file if in failover mode
+# Deploy hosts file if in failover mode (explicit)
 if [ -n "$DEPLOY_HOSTS" ]; then
   echo "Deploying $DEPLOY_HOSTS -> dhcpd-hosts.conf..."
   cp "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"
   chown root:root "$DHCP_CONF_DIR/dhcpd-hosts.conf"
   chmod 644 "$DHCP_CONF_DIR/dhcpd-hosts.conf"
 fi
+
+# Auto-detect and deploy any additional include files
+EXTRA_INCLUDES=$(deploy_includes "$DHCP_CONF_DIR/dhcpd.conf")
 
 # Check if interface is configured
 if [ -f "$DHCP_DEFAULTS" ]; then
@@ -175,6 +239,9 @@ echo "Service status: $(systemctl is-active $DHCP_SERVICE)"
 echo "Configuration: $DHCP_CONF_DIR/dhcpd.conf"
 if [ -n "$DEPLOY_HOSTS" ]; then
   echo "Hosts file: $DHCP_CONF_DIR/dhcpd-hosts.conf"
+fi
+if [ -n "$EXTRA_INCLUDES" ]; then
+  echo "Includes:$EXTRA_INCLUDES"
 fi
 echo ""
 echo "To edit configuration in the future, run:"
