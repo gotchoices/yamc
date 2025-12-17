@@ -1,0 +1,27 @@
+#!/bin/bash
+# bind9/deploy.loc - Local preparation for DNS deploy
+#
+# Validates that required files exist before deploying.
+#
+# Usage: yamc -h hostname -u root bind9 deploy
+
+echo "===== Deploy DNS Configuration ====="
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: No resources directory specified or directory not found."
+  echo "Usage: yamc -h hostname -u root bind9 deploy"
+  exit 1
+fi
+
+echo "Resources directory: $RES_DIR"
+
+# Check for required files
+if [ ! -f "$RES_DIR/named.conf" ]; then
+  echo "ERROR: named.conf not found in $RES_DIR"
+  exit 1
+fi
+
+echo "Deploying to $tgt_host..."
+echo ""
+

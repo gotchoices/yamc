@@ -1,6 +1,6 @@
 # bind9 - BIND DNS Server Module
 
-This module installs and configures BIND (named) DNS server on a remote system.
+This module installs and configures BIND (named) DNS server on a remote Ubuntu system.
 
 ## Prerequisites
 
@@ -10,10 +10,9 @@ This module installs and configures BIND (named) DNS server on a remote system.
 
 ## Resources Structure
 
-Your `yamc.local/bind9/` directory should contain:
-
 ```
-bind9/
+yamc.local/bind9/
+├── cluster.conf         # (Optional) Use shared yamc.local/cluster.conf
 ├── named.conf           # Main BIND configuration
 ├── named.local          # Local zone declarations
 └── zones/               # Zone files directory
@@ -25,19 +24,30 @@ bind9/
 
 ### Initial Setup
 
-Install BIND and deploy your authoritative configuration:
+Install BIND and deploy your configuration:
 
 ```bash
 yamc -h dns-server -u root bind9
 ```
 
+### Deploy Only (No Edit)
+
+Deploy current configuration without opening editor:
+
+```bash
+yamc -h dns-server -u root bind9 deploy
+```
+
 ### Edit Configuration
 
-Edit your authoritative DNS files locally, then deploy:
+Edit DNS files locally, then deploy:
 
 ```bash
 yamc -h dns-server -u root bind9 edit
 ```
+
+This opens your editor with `named.conf`, `named.local`, and zone files.
+After saving, changes are deployed and the service is restarted.
 
 ### View Configuration (Read-Only)
 
@@ -46,8 +56,6 @@ View your DNS config without deploying:
 ```bash
 yamc -h dns-server bind9 view
 ```
-
-Changes made in the editor are NOT deployed. Use `edit` to deploy.
 
 ### Watch Logs
 
@@ -59,44 +67,38 @@ yamc -h dns-server -u root bind9 watch
 
 Press Ctrl+C to stop.
 
-### Edit Configuration
+## Multi-Server Deployment
 
-This will:
-1. Open your editor with the configuration files (locally)
-2. After you save and exit, deploy the updated files to the server
-3. Restart the named service
+For deploying to multiple DNS servers (redundancy), use the helper scripts.
 
-### Profiles
+### cluster.conf
 
-For different DNS server roles, use profiles:
+Define your servers in `yamc.local/cluster.conf`:
 
 ```bash
-# Master DNS server
-yamc -h primary-dns -u root -p master bind9
-
-# Slave DNS server  
-yamc -h secondary-dns -u root -p slave bind9
+# Cluster Configuration
+CLUSTER_SERVERS="server1 server2"
 ```
 
-Create corresponding resource directories:
-- `yamc.local/bind9.master/`
-- `yamc.local/bind9.slave/`
+This file is shared with DHCP if you run both services on the same hosts.
 
-## Environment Variables
+### Helper Scripts
 
-The module uses these variables from your resources:
+Located in `yamc.local/bin/`:
 
-| Variable | Description |
-|----------|-------------|
-| `domain` | Your domain name (e.g., "example.org") |
-
-Set these in a `settings` file in your resources directory or pass with `-e`:
-
+**Edit zones and deploy to all servers:**
 ```bash
-yamc -h dns-server -u root -e domain=example.org bind9 edit
+bind9-cluster-edit
 ```
 
-## Files Deployed (Ubuntu/Debian)
+**Deploy only to all servers:**
+```bash
+bind9-cluster-deploy
+```
+
+These scripts read the server list from cluster.conf and deploy to each.
+
+## Files Deployed
 
 | Source | Destination |
 |--------|-------------|
@@ -104,10 +106,34 @@ yamc -h dns-server -u root -e domain=example.org bind9 edit
 | `named.local` | `/etc/bind/named.local` |
 | `zones/*` | `/var/lib/bind/` |
 
+## Subcommands Reference
+
+| Subcommand | Description |
+|------------|-------------|
+| *(none)* | Install and deploy configuration |
+| `deploy` | Deploy without editing |
+| `edit` | Edit config and deploy |
+| `view` | View config (read-only, no deploy) |
+| `watch` | Watch DNS log in real-time |
+
 ## Service
 
-- Service name: `bind9`
-- Configuration directory: `/etc/bind/`
-- Zone files directory: `/var/lib/bind/`
-- Log directory: `/var/log/named/`
+- Package: `bind9`
+- Service name: `named` (or `bind9`)
+- Configuration: `/etc/bind/`
+- Zone files: `/var/lib/bind/`
+- Logs: `/var/log/named/`
 
+## Multiple DNS Servers
+
+For redundancy, you can run identical DNS configurations on multiple servers.
+Both servers will answer queries authoritatively for your zones. Clients use
+whichever responds first.
+
+For static zone files (no dynamic updates), running multiple masters with
+identical configurations works well. Changes are deployed via yamc to all
+servers simultaneously.
+
+Note: For automatic zone synchronization, you could configure BIND's native
+master/slave (primary/secondary) replication, but this adds complexity that's
+unnecessary when deploying via yamc.

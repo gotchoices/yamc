@@ -1,0 +1,144 @@
+#!/bin/bash
+# bind9/deploy - Deploy DNS configuration without editing
+#
+# This script deploys the current configuration files to the server.
+# Targeted for Ubuntu/Debian systems.
+#
+# Usage: yamc -h hostname -u root bind9 deploy
+
+set -e  # Exit on any error
+
+echo "===== Deploying DNS Configuration ====="
+
+# Check if we're running as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "ERROR: This script must be run as root"
+  exit 1
+fi
+
+# Validate resources directory
+if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
+  echo "ERROR: Resources directory not available."
+  exit 1
+fi
+
+echo "Deploying from: $RES_DIR"
+
+# Ubuntu/Debian paths
+BIND_CONF_DIR="/etc/bind"
+BIND_ZONE_DIR="/var/lib/bind"
+BIND_SERVICE="named"
+BIND_USER="bind"
+BIND_GROUP="bind"
+
+# Check for required files
+if [ ! -f "$RES_DIR/named.conf" ]; then
+  echo "ERROR: named.conf not found in resources directory"
+  exit 1
+fi
+
+# Track if anything changed
+CHANGED=0
+
+# Helper function to copy file only if changed
+copy_if_changed() {
+  local src="$1"
+  local dst="$2"
+  local owner="$3"
+  local mode="$4"
+  
+  if [ ! -f "$dst" ] || ! cmp -s "$src" "$dst"; then
+    cp "$src" "$dst"
+    chown "$owner" "$dst"
+    chmod "$mode" "$dst"
+    echo "  Updated: $(basename "$dst")"
+    CHANGED=1
+  else
+    echo "  Unchanged: $(basename "$dst")"
+  fi
+}
+
+echo "Checking for changes..."
+
+# Deploy named.conf
+copy_if_changed "$RES_DIR/named.conf" "$BIND_CONF_DIR/named.conf" "root:$BIND_GROUP" "640"
+
+# Deploy named.local if it exists
+if [ -f "$RES_DIR/named.local" ]; then
+  copy_if_changed "$RES_DIR/named.local" "$BIND_CONF_DIR/named.local" "root:$BIND_GROUP" "640"
+fi
+
+# Deploy zone files
+if [ -d "$RES_DIR/zones" ]; then
+  for zonefile in "$RES_DIR/zones/"*; do
+    if [ -f "$zonefile" ]; then
+      filename=$(basename "$zonefile")
+      # Skip backup files
+      case "$filename" in
+        *.bak|*.old|*.orig|*~) continue ;;
+      esac
+      copy_if_changed "$zonefile" "$BIND_ZONE_DIR/$filename" "$BIND_USER:$BIND_GROUP" "640"
+    fi
+  done
+fi
+
+# If nothing changed, exit early
+if [ "$CHANGED" -eq 0 ]; then
+  echo ""
+  echo "No files changed. Service restart not needed."
+  echo "===== DNS Configuration Unchanged ====="
+  exit 0
+fi
+
+# Verify configuration before restarting
+echo ""
+echo "Verifying configuration..."
+if ! named-checkconf "$BIND_CONF_DIR/named.conf"; then
+  echo "ERROR: Configuration syntax check failed!"
+  echo "The service has NOT been restarted."
+  exit 1
+fi
+echo "Configuration syntax OK"
+
+# Check zone files
+if [ -f "$BIND_CONF_DIR/named.local" ]; then
+  zones=$(grep -E '^\s*zone\s+"[^"]+"' "$BIND_CONF_DIR/named.local" | sed 's/.*zone "\([^"]*\)".*/\1/' || true)
+  zone_errors=0
+  for zone in $zones; do
+    zonefile="$BIND_ZONE_DIR/$zone"
+    if [ -f "$zonefile" ]; then
+      echo "Checking zone: $zone"
+      if ! named-checkzone "$zone" "$zonefile"; then
+        echo "WARNING: Zone check failed for $zone"
+        zone_errors=$((zone_errors + 1))
+      fi
+    fi
+  done
+  
+  if [ $zone_errors -gt 0 ]; then
+    echo ""
+    echo "WARNING: $zone_errors zone(s) had errors."
+    echo "Continuing anyway (deploy mode)..."
+  fi
+fi
+
+# Restart service
+echo ""
+echo "Restarting $BIND_SERVICE service..."
+systemctl restart "$BIND_SERVICE"
+
+# Verify service is running
+sleep 2
+if systemctl is-active --quiet "$BIND_SERVICE"; then
+  echo "$BIND_SERVICE service restarted successfully"
+else
+  echo "ERROR: $BIND_SERVICE service failed to restart"
+  echo "Check: journalctl -u $BIND_SERVICE"
+  systemctl status "$BIND_SERVICE"
+  exit 1
+fi
+
+echo ""
+echo "===== DNS Configuration Deployed ====="
+exit 0
+
