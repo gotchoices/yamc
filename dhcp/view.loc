@@ -4,52 +4,24 @@
 # This is a local-only module that opens the config in your editor
 # for viewing without deploying changes to the remote host.
 #
-# Usage:
-#   yamc -h dhcp-server dhcp view              # View standalone dhcpd.conf
-#   yamc -h dhcp-server dhcp view primary      # View primary.conf
-#   yamc -h dhcp-server dhcp view secondary    # View secondary.conf
-#   yamc -h dhcp-server dhcp view hosts        # View hosts.conf
-
-TARGET="${1:-standalone}"
+# Usage: yamc -h dhcp-server dhcp view
 
 echo "===== View DHCP Configuration (Read-Only) ====="
 
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
   echo "ERROR: No resources directory found."
-  echo "Make sure yamc.local/dhcp/ exists with your configuration files"
+  echo "Make sure yamc.local/dhcp/ exists with your dhcpd.conf"
   exit 1
 fi
 
-# Determine which file to view
-case "$TARGET" in
-  standalone)
-    VIEW_FILE="dhcpd.conf"
-    ;;
-  primary)
-    VIEW_FILE="primary.conf"
-    ;;
-  secondary)
-    VIEW_FILE="secondary.conf"
-    ;;
-  hosts)
-    VIEW_FILE="hosts.conf"
-    ;;
-  *)
-    echo "ERROR: Unknown target: $TARGET"
-    echo "Valid targets: standalone (default), primary, secondary, hosts"
-    exit 1
-    ;;
-esac
-
 # Check for config file
-if [ ! -f "$RES_DIR/$VIEW_FILE" ]; then
-  echo "ERROR: $VIEW_FILE not found in $RES_DIR"
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in $RES_DIR"
   exit 1
 fi
 
 echo "Resources: $RES_DIR"
-echo "Viewing: $VIEW_FILE"
 echo "Opening in editor (changes will NOT be deployed)..."
 echo ""
 
@@ -57,8 +29,8 @@ echo ""
 EDIT_CMD="${EDITOR:-nano}"
 
 # Open editor
-$EDIT_CMD "$RES_DIR/$VIEW_FILE"
+$EDIT_CMD "$RES_DIR/dhcpd.conf"
 
 echo ""
 echo "View complete. No changes were deployed."
-echo "To deploy changes, use: yamc -h $tgt_host -u root dhcp edit $TARGET"
+echo "To deploy changes, use: yamc -h $tgt_host -u root dhcp edit"

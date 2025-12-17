@@ -1,79 +1,26 @@
 #!/bin/bash
 # dhcp/deploy.loc - Local preparation for DHCP deploy
 #
-# This script runs locally before the remote deploy script.
-# For deploy, we just validate that files exist - no editing.
+# Validates that required files exist before deploying.
 #
-# Usage:
-#   yamc -h hostname -u root dhcp deploy [primary|secondary]
-
-ROLE="${1:-auto}"
+# Usage: yamc -h hostname -u root dhcp deploy
 
 echo "===== Deploy DHCP Configuration ====="
 
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
   echo "ERROR: No resources directory specified or directory not found."
-  echo "Usage: yamc -h hostname -u root dhcp deploy [primary|secondary]"
+  echo "Usage: yamc -h hostname -u root dhcp deploy"
   exit 1
 fi
 
 echo "Resources directory: $RES_DIR"
 
-# Auto-detect mode if not specified
-if [ "$ROLE" = "auto" ]; then
-  if [ -f "$RES_DIR/primary.conf" ] || [ -f "$RES_DIR/secondary.conf" ]; then
-    echo "Failover configuration detected."
-    echo "Mode will be auto-detected on remote host, or specify: deploy primary|secondary"
-  elif [ -f "$RES_DIR/dhcpd.conf" ]; then
-    echo "Standalone configuration detected."
-    ROLE="standalone"
-  else
-    echo "ERROR: No configuration files found in $RES_DIR"
-    exit 1
-  fi
-else
-  echo "Mode: $ROLE"
+# Check for required files
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in $RES_DIR"
+  exit 1
 fi
 
-# Validate required files exist
-case "$ROLE" in
-  standalone)
-    if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-      echo "ERROR: dhcpd.conf not found in $RES_DIR"
-      exit 1
-    fi
-    echo "Will deploy: dhcpd.conf"
-    ;;
-  primary)
-    if [ ! -f "$RES_DIR/primary.conf" ]; then
-      echo "ERROR: primary.conf not found in $RES_DIR"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in $RES_DIR"
-      exit 1
-    fi
-    echo "Will deploy: primary.conf, hosts.conf"
-    ;;
-  secondary)
-    if [ ! -f "$RES_DIR/secondary.conf" ]; then
-      echo "ERROR: secondary.conf not found in $RES_DIR"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in $RES_DIR"
-      exit 1
-    fi
-    echo "Will deploy: secondary.conf, hosts.conf"
-    ;;
-  auto)
-    # Will be detected on remote
-    echo "Will deploy: configuration files (mode auto-detected)"
-    ;;
-esac
-
-echo ""
 echo "Deploying to $tgt_host..."
 echo ""
-

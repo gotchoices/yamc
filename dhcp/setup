@@ -2,25 +2,15 @@
 # dhcp/setup - Install and configure ISC DHCP Server
 #
 # This script installs ISC DHCP Server and deploys your configuration.
-# Supports standalone mode (single server) and failover mode (primary/secondary).
 # Automatically detects and deploys files referenced by 'include' statements.
 # Targeted for Ubuntu/Debian systems.
 #
-# Usage:
-#   yamc -h hostname -u root dhcp              # Standalone mode
-#   yamc -h hostname -u root dhcp primary      # Failover primary
-#   yamc -h hostname -u root dhcp secondary    # Failover secondary
-#
-# Resources required:
-#   Standalone: dhcpd.conf (plus any files it includes)
-#   Failover:   primary.conf or secondary.conf, hosts.conf
+# Usage: yamc -h hostname -u root dhcp
+# Resources required: dhcpd.conf (plus any files it includes)
 
 set -e  # Exit on any error
 
-ROLE="${1:-standalone}"
-
 echo "===== Installing ISC DHCP Server ====="
-echo "Mode: $ROLE"
 
 # Check if we're running as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -31,8 +21,7 @@ fi
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
   echo "ERROR: No resources directory specified or directory not found."
-  echo "Usage: yamc -h hostname -u root dhcp [primary|secondary]"
-  echo "Or create yamc.local/dhcp/ with your configuration files."
+  echo "Usage: yamc -h hostname -u root dhcp"
   exit 1
 fi
 
@@ -43,37 +32,35 @@ DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 DHCP_DEFAULTS="/etc/default/isc-dhcp-server"
 
+# Check for required files
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in resources directory"
+  exit 1
+fi
+
 # Function to find local file for an include path
-# Tries: exact basename, without dhcpd- prefix
 find_local_include() {
   local remote_path="$1"
   local basename=$(basename "$remote_path")
   
-  # Try exact basename (e.g., dhcpd-hosts.conf)
   if [ -f "$RES_DIR/$basename" ]; then
     echo "$basename"
     return 0
   fi
   
-  # Try without dhcpd- prefix (e.g., hosts.conf)
   local short_name="${basename#dhcpd-}"
   if [ -f "$RES_DIR/$short_name" ]; then
     echo "$short_name"
     return 0
   fi
   
-  # Not found
   return 1
 }
 
 # Function to deploy include files from a config
-# Scans for 'include' statements and deploys referenced files
 deploy_includes() {
   local config_file="$1"
-  local deployed_includes=""
   
-  # Extract include paths from config file
-  # Matches: include "/path/to/file";
   local includes=$(grep -E '^\s*include\s+"[^"]+"' "$config_file" 2>/dev/null | \
                    sed 's/.*include\s*"\([^"]*\)".*/\1/' || true)
   
@@ -81,68 +68,24 @@ deploy_includes() {
     return 0
   fi
   
-  echo "Detected include statements in config..."
+  echo "Deploying include files..."
   
   for remote_path in $includes; do
     local local_file=$(find_local_include "$remote_path")
     
     if [ -z "$local_file" ]; then
       echo "ERROR: Cannot find local file for include: $remote_path"
-      echo "  Looked for: $(basename "$remote_path") or ${$(basename "$remote_path")#dhcpd-}"
+      echo "  Looked for: $(basename "$remote_path") or $(basename "$remote_path" | sed 's/^dhcpd-//')"
       echo "  In directory: $RES_DIR"
       exit 1
     fi
     
-    echo "  Deploying $local_file -> $remote_path..."
+    echo "  $local_file -> $remote_path"
     cp "$RES_DIR/$local_file" "$remote_path"
     chown root:root "$remote_path"
     chmod 644 "$remote_path"
-    deployed_includes="$deployed_includes $remote_path"
   done
-  
-  echo "$deployed_includes"
 }
-
-# Determine which files to deploy based on role
-case "$ROLE" in
-  standalone)
-    if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-      echo "ERROR: dhcpd.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="dhcpd.conf"
-    DEPLOY_HOSTS=""
-    ;;
-  primary)
-    if [ ! -f "$RES_DIR/primary.conf" ]; then
-      echo "ERROR: primary.conf not found in resources directory"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="primary.conf"
-    DEPLOY_HOSTS="hosts.conf"
-    ;;
-  secondary)
-    if [ ! -f "$RES_DIR/secondary.conf" ]; then
-      echo "ERROR: secondary.conf not found in resources directory"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="secondary.conf"
-    DEPLOY_HOSTS="hosts.conf"
-    ;;
-  *)
-    echo "ERROR: Unknown role: $ROLE"
-    echo "Valid roles: standalone, primary, secondary"
-    exit 1
-    ;;
-esac
 
 # Install DHCP server if not present
 if ! dpkg -l isc-dhcp-server >/dev/null 2>&1; then
@@ -166,22 +109,14 @@ if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && [ ! -f "$DHCP_CONF_DIR/dhcpd.conf.orig"
   cp "$DHCP_CONF_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf.orig"
 fi
 
-# Deploy main config (becomes dhcpd.conf on target)
-echo "Deploying $DEPLOY_MAIN -> dhcpd.conf..."
-cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
+# Deploy main config
+echo "Deploying dhcpd.conf..."
+cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
 chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
 chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
 
-# Deploy hosts file if in failover mode (explicit)
-if [ -n "$DEPLOY_HOSTS" ]; then
-  echo "Deploying $DEPLOY_HOSTS -> dhcpd-hosts.conf..."
-  cp "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"
-  chown root:root "$DHCP_CONF_DIR/dhcpd-hosts.conf"
-  chmod 644 "$DHCP_CONF_DIR/dhcpd-hosts.conf"
-fi
-
-# Auto-detect and deploy any additional include files
-EXTRA_INCLUDES=$(deploy_includes "$DHCP_CONF_DIR/dhcpd.conf")
+# Auto-detect and deploy include files
+deploy_includes "$DHCP_CONF_DIR/dhcpd.conf"
 
 # Check if interface is configured
 if [ -f "$DHCP_DEFAULTS" ]; then
@@ -189,10 +124,8 @@ if [ -f "$DHCP_DEFAULTS" ]; then
     echo ""
     echo "WARNING: No network interface configured for DHCP server."
     echo "You may need to edit $DHCP_DEFAULTS and set INTERFACESv4=\"eth0\""
-    echo "(Replace eth0 with your actual interface name)"
     echo ""
     
-    # Try to detect the main interface
     MAIN_IF=$(ip route | grep default | awk '{print $5}' | head -1)
     if [ -n "$MAIN_IF" ]; then
       echo "Detected main interface: $MAIN_IF"
@@ -232,24 +165,6 @@ else
   exit 1
 fi
 
+echo ""
 echo "===== ISC DHCP Server Installation Complete ====="
-echo ""
-echo "Mode: $ROLE"
-echo "Service status: $(systemctl is-active $DHCP_SERVICE)"
-echo "Configuration: $DHCP_CONF_DIR/dhcpd.conf"
-if [ -n "$DEPLOY_HOSTS" ]; then
-  echo "Hosts file: $DHCP_CONF_DIR/dhcpd-hosts.conf"
-fi
-if [ -n "$EXTRA_INCLUDES" ]; then
-  echo "Includes:$EXTRA_INCLUDES"
-fi
-echo ""
-echo "To edit configuration in the future, run:"
-if [ "$ROLE" = "standalone" ]; then
-  echo "  yamc -h $(hostname) -u root dhcp edit"
-else
-  echo "  yamc -h $(hostname) -u root dhcp edit $ROLE"
-  echo "  yamc -h $(hostname) -u root dhcp edit hosts"
-fi
-echo ""
 exit 0

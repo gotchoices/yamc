@@ -3,18 +3,11 @@
 #
 # This script deploys the current configuration files to the server.
 # Automatically detects and deploys files referenced by 'include' statements.
-# Useful for syncing secondary server after editing hosts on primary.
 # Targeted for Ubuntu/Debian systems.
 #
-# Usage:
-#   yamc -h hostname -u root dhcp deploy              # Auto-detect mode
-#   yamc -h hostname -u root dhcp deploy primary      # Force primary mode
-#   yamc -h hostname -u root dhcp deploy secondary    # Force secondary mode
+# Usage: yamc -h hostname -u root dhcp deploy
 
 set -e  # Exit on any error
-
-# Role can be passed as argument, or auto-detected
-ROLE="${1:-auto}"
 
 echo "===== Deploying DHCP Configuration ====="
 
@@ -36,176 +29,69 @@ echo "Deploying from: $RES_DIR"
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 
+# Check for required files
+if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+  echo "ERROR: dhcpd.conf not found in resources directory"
+  exit 1
+fi
+
 # Function to find local file for an include path
-# Tries: exact basename, without dhcpd- prefix
 find_local_include() {
   local remote_path="$1"
   local basename=$(basename "$remote_path")
   
-  # Try exact basename (e.g., dhcpd-hosts.conf)
   if [ -f "$RES_DIR/$basename" ]; then
     echo "$basename"
     return 0
   fi
   
-  # Try without dhcpd- prefix (e.g., hosts.conf)
   local short_name="${basename#dhcpd-}"
   if [ -f "$RES_DIR/$short_name" ]; then
     echo "$short_name"
     return 0
   fi
   
-  # Not found
   return 1
 }
-
-# Function to deploy include files from a config
-# Scans for 'include' statements and deploys referenced files
-# Returns: space-separated list of deployed paths, sets INCLUDE_CHANGED=1 if any changed
-deploy_includes() {
-  local config_file="$1"
-  local source_file="$2"  # Local source file to scan
-  local deployed_includes=""
-  INCLUDE_CHANGED=0
-  
-  # Extract include paths from source config file
-  # Matches: include "/path/to/file";
-  local includes=$(grep -E '^\s*include\s+"[^"]+"' "$source_file" 2>/dev/null | \
-                   sed 's/.*include\s*"\([^"]*\)".*/\1/' || true)
-  
-  if [ -z "$includes" ]; then
-    return 0
-  fi
-  
-  for remote_path in $includes; do
-    local local_file=$(find_local_include "$remote_path")
-    
-    if [ -z "$local_file" ]; then
-      echo "ERROR: Cannot find local file for include: $remote_path"
-      echo "  Looked for: $(basename "$remote_path") or $(basename "$remote_path" | sed 's/^dhcpd-//')"
-      echo "  In directory: $RES_DIR"
-      exit 1
-    fi
-    
-    # Check if file changed
-    if [ -f "$remote_path" ] && cmp -s "$RES_DIR/$local_file" "$remote_path"; then
-      echo "  Unchanged: $local_file -> $remote_path"
-    else
-      echo "  Updated: $local_file -> $remote_path"
-      cp "$RES_DIR/$local_file" "$remote_path"
-      chown root:root "$remote_path"
-      chmod 644 "$remote_path"
-      INCLUDE_CHANGED=1
-    fi
-    deployed_includes="$deployed_includes $remote_path"
-  done
-  
-  echo "$deployed_includes"
-}
-
-# Auto-detect mode if not specified
-if [ "$ROLE" = "auto" ]; then
-  if [ -f "$RES_DIR/primary.conf" ] || [ -f "$RES_DIR/secondary.conf" ]; then
-    # Failover mode - check which role this host has
-    if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ]; then
-      # Check existing config for role hint
-      if grep -q "^\s*primary;" "$DHCP_CONF_DIR/dhcpd.conf" 2>/dev/null; then
-        ROLE="primary"
-      elif grep -q "^\s*secondary;" "$DHCP_CONF_DIR/dhcpd.conf" 2>/dev/null; then
-        ROLE="secondary"
-      else
-        echo "ERROR: Cannot auto-detect role. Specify: deploy primary|secondary"
-        exit 1
-      fi
-    else
-      echo "ERROR: Cannot auto-detect role. Specify: deploy primary|secondary"
-      exit 1
-    fi
-  elif [ -f "$RES_DIR/dhcpd.conf" ]; then
-    ROLE="standalone"
-  else
-    echo "ERROR: No configuration files found in $RES_DIR"
-    exit 1
-  fi
-fi
-
-echo "Mode: $ROLE"
-
-# Determine which files to deploy based on role
-case "$ROLE" in
-  standalone)
-    if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-      echo "ERROR: dhcpd.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="dhcpd.conf"
-    DEPLOY_HOSTS=""
-    ;;
-  primary)
-    if [ ! -f "$RES_DIR/primary.conf" ]; then
-      echo "ERROR: primary.conf not found in resources directory"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="primary.conf"
-    DEPLOY_HOSTS="hosts.conf"
-    ;;
-  secondary)
-    if [ ! -f "$RES_DIR/secondary.conf" ]; then
-      echo "ERROR: secondary.conf not found in resources directory"
-      exit 1
-    fi
-    if [ ! -f "$RES_DIR/hosts.conf" ]; then
-      echo "ERROR: hosts.conf not found in resources directory"
-      exit 1
-    fi
-    DEPLOY_MAIN="secondary.conf"
-    DEPLOY_HOSTS="hosts.conf"
-    ;;
-  *)
-    echo "ERROR: Unknown role: $ROLE"
-    echo "Valid roles: standalone, primary, secondary"
-    exit 1
-    ;;
-esac
 
 # Track if anything changed
 CHANGED=0
 
 # Check and deploy main config
 echo "Checking for changes..."
-if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && cmp -s "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"; then
-  echo "  Unchanged: $DEPLOY_MAIN -> dhcpd.conf"
+if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && cmp -s "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"; then
+  echo "  Unchanged: dhcpd.conf"
 else
-  echo "  Updated: $DEPLOY_MAIN -> dhcpd.conf"
-  cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
+  echo "  Updated: dhcpd.conf"
+  cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
   chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
   chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
   CHANGED=1
 fi
 
-# Check and deploy hosts file if in failover mode (explicit)
-if [ -n "$DEPLOY_HOSTS" ]; then
-  if [ -f "$DHCP_CONF_DIR/dhcpd-hosts.conf" ] && cmp -s "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"; then
-    echo "  Unchanged: $DEPLOY_HOSTS -> dhcpd-hosts.conf"
+# Deploy include files
+includes=$(grep -E '^\s*include\s+"[^"]+"' "$RES_DIR/dhcpd.conf" 2>/dev/null | \
+           sed 's/.*include\s*"\([^"]*\)".*/\1/' || true)
+
+for remote_path in $includes; do
+  local_file=$(find_local_include "$remote_path")
+  
+  if [ -z "$local_file" ]; then
+    echo "ERROR: Cannot find local file for include: $remote_path"
+    echo "  In directory: $RES_DIR"
+    exit 1
+  fi
+  
+  if [ -f "$remote_path" ] && cmp -s "$RES_DIR/$local_file" "$remote_path"; then
+    echo "  Unchanged: $local_file"
   else
-    echo "  Updated: $DEPLOY_HOSTS -> dhcpd-hosts.conf"
-    cp "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"
-    chown root:root "$DHCP_CONF_DIR/dhcpd-hosts.conf"
-    chmod 644 "$DHCP_CONF_DIR/dhcpd-hosts.conf"
+    echo "  Updated: $local_file -> $remote_path"
+    cp "$RES_DIR/$local_file" "$remote_path"
+    chown root:root "$remote_path"
+    chmod 644 "$remote_path"
     CHANGED=1
   fi
-fi
-
-# Auto-detect and deploy any additional include files from the main config
-INCLUDE_CHANGED=0
-EXTRA_INCLUDES=$(deploy_includes "$DHCP_CONF_DIR/dhcpd.conf" "$RES_DIR/$DEPLOY_MAIN")
-if [ "$INCLUDE_CHANGED" -eq 1 ]; then
-  CHANGED=1
-fi
+done
 
 # If nothing changed, exit early
 if [ "$CHANGED" -eq 0 ]; then
@@ -221,7 +107,6 @@ echo "Verifying configuration..."
 if ! dhcpd -t -cf "$DHCP_CONF_DIR/dhcpd.conf" 2>&1; then
   echo "ERROR: Configuration syntax check failed!"
   echo "The service has NOT been restarted."
-  echo "Please fix the configuration and try again."
   exit 1
 fi
 echo "Configuration syntax OK"
@@ -243,5 +128,5 @@ else
 fi
 
 echo ""
-echo "===== DHCP Configuration Deployed Successfully ====="
+echo "===== DHCP Configuration Deployed ====="
 exit 0
