@@ -1,19 +1,19 @@
 #!/bin/bash
-# dhcp/edit - Deploy edited DHCP configuration to the server
+# dhcp/deploy - Deploy DHCP configuration without editing
 #
-# This script is run after edit.loc has allowed the user to edit
-# their configuration file locally.
+# This script deploys the current configuration files to the server.
+# Useful for syncing secondary server after editing hosts on primary.
 # Targeted for Ubuntu/Debian systems.
 #
 # Usage:
-#   yamc -h hostname -u root dhcp edit              # Standalone: deploy dhcpd.conf
-#   yamc -h hostname -u root dhcp edit primary      # Failover: deploy primary.conf + hosts.conf
-#   yamc -h hostname -u root dhcp edit secondary    # Failover: deploy secondary.conf + hosts.conf
-#   yamc -h hostname -u root dhcp edit hosts        # Failover: deploy hosts.conf only
+#   yamc -h hostname -u root dhcp deploy              # Auto-detect mode
+#   yamc -h hostname -u root dhcp deploy primary      # Force primary mode
+#   yamc -h hostname -u root dhcp deploy secondary    # Force secondary mode
 
 set -e  # Exit on any error
 
-TARGET="${1:-standalone}"
+# Role can be passed as argument, or auto-detected
+ROLE="${1:-auto}"
 
 echo "===== Deploying DHCP Configuration ====="
 
@@ -30,14 +30,41 @@ if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
 fi
 
 echo "Deploying from: $RES_DIR"
-echo "Edit target: $TARGET"
 
 # Ubuntu/Debian paths
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 
-# Determine which files to deploy based on edit target
-case "$TARGET" in
+# Auto-detect mode if not specified
+if [ "$ROLE" = "auto" ]; then
+  if [ -f "$RES_DIR/primary.conf" ] || [ -f "$RES_DIR/secondary.conf" ]; then
+    # Failover mode - check which role this host has
+    if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ]; then
+      # Check existing config for role hint
+      if grep -q "^\s*primary;" "$DHCP_CONF_DIR/dhcpd.conf" 2>/dev/null; then
+        ROLE="primary"
+      elif grep -q "^\s*secondary;" "$DHCP_CONF_DIR/dhcpd.conf" 2>/dev/null; then
+        ROLE="secondary"
+      else
+        echo "ERROR: Cannot auto-detect role. Specify: deploy primary|secondary"
+        exit 1
+      fi
+    else
+      echo "ERROR: Cannot auto-detect role. Specify: deploy primary|secondary"
+      exit 1
+    fi
+  elif [ -f "$RES_DIR/dhcpd.conf" ]; then
+    ROLE="standalone"
+  else
+    echo "ERROR: No configuration files found in $RES_DIR"
+    exit 1
+  fi
+fi
+
+echo "Mode: $ROLE"
+
+# Determine which files to deploy based on role
+case "$ROLE" in
   standalone)
     if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
       echo "ERROR: dhcpd.conf not found in resources directory"
@@ -51,39 +78,28 @@ case "$TARGET" in
       echo "ERROR: primary.conf not found in resources directory"
       exit 1
     fi
-    DEPLOY_MAIN="primary.conf"
-    # Also deploy hosts.conf if it exists (failover needs both)
-    if [ -f "$RES_DIR/hosts.conf" ]; then
-      DEPLOY_HOSTS="hosts.conf"
-    else
-      DEPLOY_HOSTS=""
+    if [ ! -f "$RES_DIR/hosts.conf" ]; then
+      echo "ERROR: hosts.conf not found in resources directory"
+      exit 1
     fi
+    DEPLOY_MAIN="primary.conf"
+    DEPLOY_HOSTS="hosts.conf"
     ;;
   secondary)
     if [ ! -f "$RES_DIR/secondary.conf" ]; then
       echo "ERROR: secondary.conf not found in resources directory"
       exit 1
     fi
-    DEPLOY_MAIN="secondary.conf"
-    # Also deploy hosts.conf if it exists (failover needs both)
-    if [ -f "$RES_DIR/hosts.conf" ]; then
-      DEPLOY_HOSTS="hosts.conf"
-    else
-      DEPLOY_HOSTS=""
-    fi
-    ;;
-  hosts)
     if [ ! -f "$RES_DIR/hosts.conf" ]; then
       echo "ERROR: hosts.conf not found in resources directory"
       exit 1
     fi
-    # Only deploy hosts file, leave main config unchanged
-    DEPLOY_MAIN=""
+    DEPLOY_MAIN="secondary.conf"
     DEPLOY_HOSTS="hosts.conf"
     ;;
   *)
-    echo "ERROR: Unknown target: $TARGET"
-    echo "Valid targets: standalone, primary, secondary, hosts"
+    echo "ERROR: Unknown role: $ROLE"
+    echo "Valid roles: standalone, primary, secondary"
     exit 1
     ;;
 esac
@@ -92,20 +108,18 @@ esac
 CHANGED=0
 
 # Check and deploy main config
-if [ -n "$DEPLOY_MAIN" ]; then
-  echo "Checking for changes..."
-  if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && cmp -s "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"; then
-    echo "  Unchanged: $DEPLOY_MAIN -> dhcpd.conf"
-  else
-    echo "  Updated: $DEPLOY_MAIN -> dhcpd.conf"
-    cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
-    chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
-    chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
-    CHANGED=1
-  fi
+echo "Checking for changes..."
+if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && cmp -s "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"; then
+  echo "  Unchanged: $DEPLOY_MAIN -> dhcpd.conf"
+else
+  echo "  Updated: $DEPLOY_MAIN -> dhcpd.conf"
+  cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
+  chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
+  chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
+  CHANGED=1
 fi
 
-# Check and deploy hosts file
+# Check and deploy hosts file if in failover mode
 if [ -n "$DEPLOY_HOSTS" ]; then
   if [ -f "$DHCP_CONF_DIR/dhcpd-hosts.conf" ] && cmp -s "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"; then
     echo "  Unchanged: $DEPLOY_HOSTS -> dhcpd-hosts.conf"
@@ -156,3 +170,4 @@ fi
 echo ""
 echo "===== DHCP Configuration Deployed Successfully ====="
 exit 0
+

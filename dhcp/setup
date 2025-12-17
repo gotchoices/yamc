@@ -1,15 +1,25 @@
 #!/bin/bash
 # dhcp/setup - Install and configure ISC DHCP Server
 #
-# This script installs ISC DHCP Server and deploys your authoritative configuration.
+# This script installs ISC DHCP Server and deploys your configuration.
+# Supports standalone mode (single server) and failover mode (primary/secondary).
 # Targeted for Ubuntu/Debian systems.
 #
-# Usage: yamc -h hostname -u root dhcp
-# Resources required: dhcpd.conf
+# Usage:
+#   yamc -h hostname -u root dhcp              # Standalone mode
+#   yamc -h hostname -u root dhcp primary      # Failover primary
+#   yamc -h hostname -u root dhcp secondary    # Failover secondary
+#
+# Resources required:
+#   Standalone: dhcpd.conf
+#   Failover:   primary.conf or secondary.conf, hosts.conf
 
 set -e  # Exit on any error
 
+ROLE="${1:-standalone}"
+
 echo "===== Installing ISC DHCP Server ====="
+echo "Mode: $ROLE"
 
 # Check if we're running as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -20,23 +30,58 @@ fi
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
   echo "ERROR: No resources directory specified or directory not found."
-  echo "Usage: yamc -h hostname -u root dhcp"
-  echo "Or create yamc.local/dhcp/ with your dhcpd.conf."
+  echo "Usage: yamc -h hostname -u root dhcp [primary|secondary]"
+  echo "Or create yamc.local/dhcp/ with your configuration files."
   exit 1
 fi
 
 echo "Using resources from: $RES_DIR"
 
-# Check for required files
-if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-  echo "ERROR: dhcpd.conf not found in resources directory"
-  exit 1
-fi
-
 # Ubuntu/Debian paths
 DHCP_CONF_DIR="/etc/dhcp"
 DHCP_SERVICE="isc-dhcp-server"
 DHCP_DEFAULTS="/etc/default/isc-dhcp-server"
+
+# Determine which files to deploy based on role
+case "$ROLE" in
+  standalone)
+    if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
+      echo "ERROR: dhcpd.conf not found in resources directory"
+      exit 1
+    fi
+    DEPLOY_MAIN="dhcpd.conf"
+    DEPLOY_HOSTS=""
+    ;;
+  primary)
+    if [ ! -f "$RES_DIR/primary.conf" ]; then
+      echo "ERROR: primary.conf not found in resources directory"
+      exit 1
+    fi
+    if [ ! -f "$RES_DIR/hosts.conf" ]; then
+      echo "ERROR: hosts.conf not found in resources directory"
+      exit 1
+    fi
+    DEPLOY_MAIN="primary.conf"
+    DEPLOY_HOSTS="hosts.conf"
+    ;;
+  secondary)
+    if [ ! -f "$RES_DIR/secondary.conf" ]; then
+      echo "ERROR: secondary.conf not found in resources directory"
+      exit 1
+    fi
+    if [ ! -f "$RES_DIR/hosts.conf" ]; then
+      echo "ERROR: hosts.conf not found in resources directory"
+      exit 1
+    fi
+    DEPLOY_MAIN="secondary.conf"
+    DEPLOY_HOSTS="hosts.conf"
+    ;;
+  *)
+    echo "ERROR: Unknown role: $ROLE"
+    echo "Valid roles: standalone, primary, secondary"
+    exit 1
+    ;;
+esac
 
 # Install DHCP server if not present
 if ! dpkg -l isc-dhcp-server >/dev/null 2>&1; then
@@ -60,11 +105,19 @@ if [ -f "$DHCP_CONF_DIR/dhcpd.conf" ] && [ ! -f "$DHCP_CONF_DIR/dhcpd.conf.orig"
   cp "$DHCP_CONF_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf.orig"
 fi
 
-# Deploy dhcpd.conf
-echo "Deploying dhcpd.conf..."
-cp "$RES_DIR/dhcpd.conf" "$DHCP_CONF_DIR/dhcpd.conf"
+# Deploy main config (becomes dhcpd.conf on target)
+echo "Deploying $DEPLOY_MAIN -> dhcpd.conf..."
+cp "$RES_DIR/$DEPLOY_MAIN" "$DHCP_CONF_DIR/dhcpd.conf"
 chown root:root "$DHCP_CONF_DIR/dhcpd.conf"
 chmod 644 "$DHCP_CONF_DIR/dhcpd.conf"
+
+# Deploy hosts file if in failover mode
+if [ -n "$DEPLOY_HOSTS" ]; then
+  echo "Deploying $DEPLOY_HOSTS -> dhcpd-hosts.conf..."
+  cp "$RES_DIR/$DEPLOY_HOSTS" "$DHCP_CONF_DIR/dhcpd-hosts.conf"
+  chown root:root "$DHCP_CONF_DIR/dhcpd-hosts.conf"
+  chmod 644 "$DHCP_CONF_DIR/dhcpd-hosts.conf"
+fi
 
 # Check if interface is configured
 if [ -f "$DHCP_DEFAULTS" ]; then
@@ -77,7 +130,7 @@ if [ -f "$DHCP_DEFAULTS" ]; then
     
     # Try to detect the main interface
     MAIN_IF=$(ip route | grep default | awk '{print $5}' | head -1)
-    if [ ! -z "$MAIN_IF" ]; then
+    if [ -n "$MAIN_IF" ]; then
       echo "Detected main interface: $MAIN_IF"
       read -p "Configure DHCP to listen on $MAIN_IF? (y/N) " confirm
       if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
@@ -117,11 +170,19 @@ fi
 
 echo "===== ISC DHCP Server Installation Complete ====="
 echo ""
+echo "Mode: $ROLE"
 echo "Service status: $(systemctl is-active $DHCP_SERVICE)"
 echo "Configuration: $DHCP_CONF_DIR/dhcpd.conf"
+if [ -n "$DEPLOY_HOSTS" ]; then
+  echo "Hosts file: $DHCP_CONF_DIR/dhcpd-hosts.conf"
+fi
 echo ""
 echo "To edit configuration in the future, run:"
-echo "  yamc -h $(hostname) -u root dhcp edit"
+if [ "$ROLE" = "standalone" ]; then
+  echo "  yamc -h $(hostname) -u root dhcp edit"
+else
+  echo "  yamc -h $(hostname) -u root dhcp edit $ROLE"
+  echo "  yamc -h $(hostname) -u root dhcp edit hosts"
+fi
 echo ""
 exit 0
-

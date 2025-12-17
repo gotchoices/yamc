@@ -1,44 +1,88 @@
 #!/bin/bash
 # dhcp/edit.loc - Edit DHCP configuration file locally
 #
-# This script opens your editor on the authoritative DHCP configuration.
+# This script opens your editor on the DHCP configuration.
 # After editing, the changes will be deployed by the remote 'edit' script.
+#
+# Usage:
+#   yamc -h hostname -u root dhcp edit              # Standalone: edit dhcpd.conf
+#   yamc -h hostname -u root dhcp edit primary      # Failover: edit primary.conf
+#   yamc -h hostname -u root dhcp edit secondary    # Failover: edit secondary.conf
+#   yamc -h hostname -u root dhcp edit hosts        # Failover: edit hosts.conf
+
+TARGET="${1:-standalone}"
 
 echo "===== Edit DHCP Configuration ====="
 
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
   echo "ERROR: No resources directory specified or directory not found."
-  echo "Usage: yamc -h hostname -u root dhcp edit"
+  echo "Usage: yamc -h hostname -u root dhcp edit [primary|secondary|hosts]"
   echo ""
-  echo "Make sure you have a yamc.local/dhcp/ directory with your dhcpd.conf,"
+  echo "Make sure you have a yamc.local/dhcp/ directory with your configuration,"
   echo "or specify a resources path with -r /path/to/resources"
   exit 1
 fi
 
 echo "Resources directory: $RES_DIR"
 
-# Check for config file
-if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-  echo "ERROR: dhcpd.conf not found in $RES_DIR"
-  exit 1
-fi
+# Determine which file to edit
+case "$TARGET" in
+  standalone)
+    EDIT_FILE="dhcpd.conf"
+    if [ ! -f "$RES_DIR/$EDIT_FILE" ]; then
+      echo "ERROR: $EDIT_FILE not found in $RES_DIR"
+      exit 1
+    fi
+    ;;
+  primary)
+    EDIT_FILE="primary.conf"
+    if [ ! -f "$RES_DIR/$EDIT_FILE" ]; then
+      echo "ERROR: $EDIT_FILE not found in $RES_DIR"
+      echo "For failover mode, create primary.conf and secondary.conf"
+      exit 1
+    fi
+    ;;
+  secondary)
+    EDIT_FILE="secondary.conf"
+    if [ ! -f "$RES_DIR/$EDIT_FILE" ]; then
+      echo "ERROR: $EDIT_FILE not found in $RES_DIR"
+      echo "For failover mode, create primary.conf and secondary.conf"
+      exit 1
+    fi
+    ;;
+  hosts)
+    EDIT_FILE="hosts.conf"
+    if [ ! -f "$RES_DIR/$EDIT_FILE" ]; then
+      echo "ERROR: $EDIT_FILE not found in $RES_DIR"
+      echo "For failover mode, create hosts.conf with your host declarations"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "ERROR: Unknown target: $TARGET"
+    echo "Valid targets: standalone (default), primary, secondary, hosts"
+    exit 1
+    ;;
+esac
 
 # Create backup before editing
 echo "Creating backup..."
-cp "$RES_DIR/dhcpd.conf" "$RES_DIR/dhcpd.conf.bak"
+cp "$RES_DIR/$EDIT_FILE" "$RES_DIR/$EDIT_FILE.bak"
 
 echo ""
-echo "Opening editor for: dhcpd.conf"
+echo "Opening editor for: $EDIT_FILE"
 echo ""
 
 # Use EDITOR environment variable, default to nano
 EDIT_CMD="${EDITOR:-nano}"
 
 # Open editor
-$EDIT_CMD "$RES_DIR/dhcpd.conf"
+$EDIT_CMD "$RES_DIR/$EDIT_FILE"
 
 echo ""
 echo "Editing complete. Changes will be deployed to $tgt_host..."
 echo ""
 
+# Export TARGET for the remote script
+export EDIT_TARGET="$TARGET"
