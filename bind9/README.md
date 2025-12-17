@@ -12,7 +12,7 @@ This module installs and configures BIND (named) DNS server on a remote Ubuntu s
 
 ```
 yamc.local/bind9/
-├── cluster.conf         # (Optional) Use shared yamc.local/cluster.conf
+├── cluster.conf         # (Optional) Server list for cluster scripts
 ├── named.conf           # Main BIND configuration
 ├── named.local          # Local zone declarations
 └── zones/               # Zone files directory
@@ -73,14 +73,12 @@ For deploying to multiple DNS servers (redundancy), use the helper scripts.
 
 ### cluster.conf
 
-Define your servers in `yamc.local/cluster.conf`:
+Define your servers in `yamc.local/bind9/cluster.conf`:
 
 ```bash
-# Cluster Configuration
-CLUSTER_SERVERS="server1 server2"
+# DNS Cluster Configuration
+DNS_SERVERS="server1 server2"
 ```
-
-This file is shared with DHCP if you run both services on the same hosts.
 
 ### Helper Scripts
 
