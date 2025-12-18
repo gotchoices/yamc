@@ -434,14 +434,14 @@ run_module() {
   MODULE_PATHS=(
     # First, check if MODULE is an absolute path to a directory
     "$MODULE"
-    # Next, check relative to current directory
-    "$(pwd)/$MODULE"
     # Check in user's personal modules
     "$HOME/.yamc/modules/$MODULE"
     # Check in system-wide custom modules
     "/etc/yamc/modules/$MODULE"
-    # Finally, check in the installation directory
+    # Check in the installation directory (installed layout)
     "$INSTALL_DIR/modules/$MODULE"
+    # Check in the installation directory (source layout - modules at top level)
+    "$INSTALL_DIR/$MODULE"
   )
   
   # Find the module directory
@@ -462,10 +462,10 @@ run_module() {
     log ERROR "Module '$MODULE' not found in any of the search paths"
     log ERROR "Searched in:"
     log ERROR "  - $MODULE (absolute path)"
-    log ERROR "  - $(pwd)/$MODULE (current directory)"
     log ERROR "  - $HOME/.yamc/modules/$MODULE (user modules)"
     log ERROR "  - /etc/yamc/modules/$MODULE (system modules)"
     log ERROR "  - $INSTALL_DIR/modules/$MODULE (installed modules)"
+    log ERROR "  - $INSTALL_DIR/$MODULE (source directory)"
     exit 1
   fi
   
