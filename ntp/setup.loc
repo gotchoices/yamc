@@ -1,0 +1,23 @@
+#!/bin/bash
+# ntp/setup.loc - Prepare NTP configuration locally
+#
+# Checks for site-specific NTP server in yamc.local/ntp/config.conf
+
+# Look for site-specific config
+if [ -f "$RES_DIR/config.conf" ]; then
+  echo "Found site-specific NTP config"
+  source "$RES_DIR/config.conf"
+  
+  if [ -n "$NTP_SERVER" ]; then
+    echo "Using NTP server: $NTP_SERVER"
+    echo "NTP_SERVER=\"$NTP_SERVER\"" >> "$MOD_TMP/env"
+  fi
+else
+  echo "No site config found, will use system defaults (pool.ntp.org)"
+fi
+
+# Check if this should be an NTP server (not just client)
+if [ -n "$NTP_IS_SERVER" ]; then
+  echo "NTP_IS_SERVER=\"$NTP_IS_SERVER\"" >> "$MOD_TMP/env"
+fi
+

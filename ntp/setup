@@ -1,0 +1,95 @@
+#!/bin/bash
+# ntp/setup - Install and configure NTP (chrony) on remote system
+#
+# Usage: yamc -h hostname -u root ntp
+#
+# Site config (optional): yamc.local/ntp/config.conf
+#   NTP_SERVER=ntp.example.com    # Custom NTP server
+#   NTP_IS_SERVER=true            # Configure as NTP server (not just client)
+
+set -e
+
+echo "===== Configuring NTP (chrony) ====="
+
+# Install chrony if not present
+if ! command -v chronyd &> /dev/null; then
+  echo "Installing chrony..."
+  apt-get update -qq
+  apt-get install -y chrony
+else
+  echo "chrony is already installed"
+fi
+
+# Configuration file location
+CHRONY_CONF="/etc/chrony/chrony.conf"
+
+if [ ! -f "$CHRONY_CONF" ]; then
+  echo "ERROR: chrony config not found at $CHRONY_CONF"
+  exit 1
+fi
+
+# Backup original config if not already backed up
+if [ ! -f "$CHRONY_CONF.orig" ]; then
+  cp "$CHRONY_CONF" "$CHRONY_CONF.orig"
+  echo "Backed up original config to $CHRONY_CONF.orig"
+fi
+
+# Configure custom NTP server if specified
+if [ -n "$NTP_SERVER" ]; then
+  echo "Configuring custom NTP server: $NTP_SERVER"
+  
+  # Check if already configured
+  if grep -q "^server $NTP_SERVER" "$CHRONY_CONF"; then
+    echo "NTP server $NTP_SERVER already configured"
+  else
+    # Comment out default pool servers and add our server
+    sed -i 's/^pool /#pool /' "$CHRONY_CONF"
+    
+    # Add our server at the top of the file (after any comments)
+    if ! grep -q "^server $NTP_SERVER" "$CHRONY_CONF"; then
+      # Find first non-comment line and insert before it
+      sed -i "0,/^[^#]/{s/^[^#]/server $NTP_SERVER iburst\n&/}" "$CHRONY_CONF"
+      echo "Added server $NTP_SERVER to config"
+    fi
+  fi
+else
+  echo "Using default NTP servers (pool.ntp.org)"
+fi
+
+# Configure as NTP server if requested
+if [ "$NTP_IS_SERVER" = "true" ]; then
+  echo "Configuring as NTP server..."
+  
+  # Allow local network clients
+  if ! grep -q "^allow 192.168" "$CHRONY_CONF"; then
+    echo "allow 192.168.0.0/16" >> "$CHRONY_CONF"
+    echo "Added allow rule for local network"
+  fi
+  
+  # Serve time even if not synchronized
+  if ! grep -q "^local stratum" "$CHRONY_CONF"; then
+    echo "local stratum 10" >> "$CHRONY_CONF"
+    echo "Added local stratum for serving time"
+  fi
+fi
+
+# Enable and restart chrony
+echo "Enabling and starting chrony service..."
+systemctl enable chrony
+systemctl restart chrony
+
+# Wait a moment for sync
+sleep 2
+
+# Show status
+echo ""
+echo "Chrony status:"
+chronyc tracking | head -5
+
+echo ""
+echo "NTP sources:"
+chronyc sources
+
+echo ""
+echo "===== NTP Configuration Complete ====="
+
