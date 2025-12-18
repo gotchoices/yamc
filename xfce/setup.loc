@@ -1,0 +1,9 @@
+#!/bin/bash
+# xfce/setup.loc - Prepare XFCE configuration locally
+
+# Copy gdmflexiserver helper if it exists in yamc.local
+if [ -f "$RES_DIR/gdmflexiserver" ]; then
+  echo "Found gdmflexiserver helper, will install to remote system"
+  cp "$RES_DIR/gdmflexiserver" "$MOD_TMP/gdmflexiserver"
+fi
+

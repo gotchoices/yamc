@@ -1,0 +1,75 @@
+#!/bin/bash
+# xfce/setup - Configure XFCE desktop environment on remote Ubuntu system
+#
+# This module configures the system for graphical boot with XFCE.
+# Run AFTER 'packages desktop' to install the actual packages.
+
+set -e
+
+echo "===== Configuring XFCE Desktop Environment ====="
+
+# Verify XFCE is installed
+if ! dpkg -s xfce4 &> /dev/null; then
+  echo "ERROR: xfce4 package not installed."
+  echo "Run 'yamc -h host -u root packages desktop' first."
+  exit 1
+fi
+
+# Verify lightdm is installed
+if ! dpkg -s lightdm &> /dev/null; then
+  echo "ERROR: lightdm package not installed."
+  echo "Run 'yamc -h host -u root packages desktop' first."
+  exit 1
+fi
+
+# 1. Set graphical target as default (boot to GUI)
+echo "Setting graphical.target as default boot target..."
+CURRENT_TARGET=$(systemctl get-default)
+if [ "$CURRENT_TARGET" != "graphical.target" ]; then
+  systemctl set-default graphical.target
+  echo "  Changed from '$CURRENT_TARGET' to 'graphical.target'"
+else
+  echo "  Already set to graphical.target"
+fi
+
+# 2. Enable lightdm
+echo "Enabling lightdm display manager..."
+systemctl enable lightdm
+
+# 3. Install gdmflexiserver helper if provided
+if [ -f "$MOD_TMP/gdmflexiserver" ]; then
+  echo "Installing gdmflexiserver helper to /usr/local/bin..."
+  cp "$MOD_TMP/gdmflexiserver" /usr/local/bin/gdmflexiserver
+  chmod 755 /usr/local/bin/gdmflexiserver
+fi
+
+# 4. Ensure gnome-keyring unlocks on login (for password managers, etc.)
+echo "Checking PAM configuration for gnome-keyring..."
+if [ -f /etc/pam.d/lightdm ]; then
+  if ! grep -q "pam_gnome_keyring.so" /etc/pam.d/lightdm; then
+    echo "  Adding gnome-keyring to lightdm PAM config..."
+    # Add auto_start to auth section
+    if ! grep -q "pam_gnome_keyring.so auto_start" /etc/pam.d/lightdm; then
+      sed -i '/^auth.*pam_unix.so/a auth optional pam_gnome_keyring.so' /etc/pam.d/lightdm
+    fi
+    # Add to session section
+    if ! grep -q "pam_gnome_keyring.so auto_start" /etc/pam.d/lightdm; then
+      echo "session optional pam_gnome_keyring.so auto_start" >> /etc/pam.d/lightdm
+    fi
+  else
+    echo "  gnome-keyring already configured in PAM"
+  fi
+fi
+
+# 5. Start lightdm if not already running (optional - may kick user out of SSH)
+echo ""
+echo "Configuration complete."
+echo ""
+echo "To start the GUI now, run:"
+echo "  systemctl start lightdm"
+echo ""
+echo "Or reboot the system to boot into graphical mode."
+
+echo "===== XFCE Configuration Complete ====="
+exit 0
+
