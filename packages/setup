@@ -1,0 +1,87 @@
+#!/bin/bash
+# packages/setup - Install packages on remote Ubuntu system
+#
+# Usage: yamc -h hostname -u root packages [list_name ...]
+#
+# Package lists are stored in yamc.local/packages/*.list
+# One package per line, comments start with #
+
+set -e
+
+echo "===== Installing Packages ====="
+
+if [ -z "$PACKAGE_LIST" ]; then
+  echo "ERROR: No packages specified"
+  exit 1
+fi
+
+# Update package index
+echo "Updating package index..."
+apt-get update -qq
+
+# Track results
+INSTALLED=()
+ALREADY=()
+FAILED=()
+SKIPPED=()
+
+echo ""
+echo "Processing packages..."
+
+for pkg in $PACKAGE_LIST; do
+  # Check if package exists in repos
+  if ! apt-cache show "$pkg" &>/dev/null; then
+    echo "  ⚠ $pkg - not found in repositories (skipping)"
+    SKIPPED+=("$pkg")
+    continue
+  fi
+  
+  # Check if already installed
+  if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+    echo "  ✓ $pkg - already installed"
+    ALREADY+=("$pkg")
+    continue
+  fi
+  
+  # Try to install
+  echo "  → Installing $pkg..."
+  if apt-get install -y -qq "$pkg" 2>/dev/null; then
+    INSTALLED+=("$pkg")
+  else
+    echo "  ✗ $pkg - installation failed"
+    FAILED+=("$pkg")
+  fi
+done
+
+# Summary
+echo ""
+echo "===== Package Installation Summary ====="
+echo "Already installed: ${#ALREADY[@]}"
+echo "Newly installed:   ${#INSTALLED[@]}"
+echo "Not found/skipped: ${#SKIPPED[@]}"
+echo "Failed:            ${#FAILED[@]}"
+
+if [ ${#INSTALLED[@]} -gt 0 ]; then
+  echo ""
+  echo "Newly installed packages:"
+  printf '  %s\n' "${INSTALLED[@]}"
+fi
+
+if [ ${#SKIPPED[@]} -gt 0 ]; then
+  echo ""
+  echo "Packages not found (may need different name or PPA):"
+  printf '  %s\n' "${SKIPPED[@]}"
+fi
+
+if [ ${#FAILED[@]} -gt 0 ]; then
+  echo ""
+  echo "Failed packages:"
+  printf '  %s\n' "${FAILED[@]}"
+  echo ""
+  echo "WARNING: Some packages failed to install"
+  # Don't exit with error - let the user decide if this is critical
+fi
+
+echo ""
+echo "===== Package Installation Complete ====="
+

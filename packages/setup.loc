@@ -1,0 +1,61 @@
+#!/bin/bash
+# packages/setup.loc - Prepare package list locally
+#
+# Usage: yamc -h host -u root packages [list_name]
+# Examples:
+#   yamc -h host -u root packages           # Install from 'base' list
+#   yamc -h host -u root packages desktop   # Install from 'desktop' list
+#   yamc -h host -u root packages base desktop  # Install from multiple lists
+
+# Default to 'base' if no list specified
+if [ $# -eq 0 ]; then
+  LISTS="base"
+else
+  LISTS="$*"
+fi
+
+echo "Package lists requested: $LISTS"
+
+# Collect all packages from all requested lists
+ALL_PACKAGES=""
+MISSING_LISTS=""
+
+for list in $LISTS; do
+  list_file="$RES_DIR/${list}.list"
+  
+  if [ -f "$list_file" ]; then
+    echo "Found list: $list_file"
+    
+    # Read packages, skip comments and empty lines
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Skip comments and empty lines
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line// }" ]] && continue
+      
+      # Handle inline comments (package # comment)
+      pkg=$(echo "$line" | sed 's/#.*//' | xargs)
+      [ -n "$pkg" ] && ALL_PACKAGES="$ALL_PACKAGES $pkg"
+    done < "$list_file"
+  else
+    echo "WARNING: List file not found: $list_file"
+    MISSING_LISTS="$MISSING_LISTS $list"
+  fi
+done
+
+if [ -n "$MISSING_LISTS" ]; then
+  echo ""
+  echo "Missing list files:$MISSING_LISTS"
+  echo "Available lists in $RES_DIR:"
+  ls -1 "$RES_DIR"/*.list 2>/dev/null | xargs -I{} basename {} .list || echo "  (none)"
+fi
+
+if [ -z "$ALL_PACKAGES" ]; then
+  echo "ERROR: No packages found to install"
+  exit 1
+fi
+
+# Write packages to env file for remote script
+echo "PACKAGE_LIST=\"$ALL_PACKAGES\"" >> "$MOD_TMP/env"
+echo ""
+echo "Packages to install: $(echo $ALL_PACKAGES | wc -w) packages"
+
