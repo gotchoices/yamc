@@ -1,0 +1,96 @@
+#!/bin/bash
+# nfs-client/setup - Configure NFS mounts on remote Ubuntu system
+#
+# Usage: yamc -h hostname -u root nfs-client
+#
+# Mounts defined in yamc.local/nfs-client/mounts.conf
+
+set -e
+
+echo "===== Configuring NFS Client ====="
+
+if [ -z "$NFS_MOUNTS" ]; then
+  echo "ERROR: No NFS mounts specified"
+  exit 1
+fi
+
+# Install NFS client packages
+if ! dpkg -l nfs-common 2>/dev/null | grep -q "^ii"; then
+  echo "Installing NFS client packages..."
+  apt-get update -qq
+  apt-get install -y nfs-common
+else
+  echo "NFS client packages already installed"
+fi
+
+# Ensure rpcbind is running
+if ! systemctl is-active --quiet rpcbind; then
+  echo "Starting rpcbind service..."
+  systemctl start rpcbind
+  systemctl enable rpcbind
+fi
+
+# Backup fstab if not already backed up
+if [ ! -f /etc/fstab.orig ]; then
+  cp /etc/fstab /etc/fstab.orig
+  echo "Backed up /etc/fstab to /etc/fstab.orig"
+fi
+
+# Process each mount
+echo ""
+echo "Processing NFS mounts..."
+
+# Split by pipe delimiter
+IFS='|' read -ra MOUNTS <<< "$NFS_MOUNTS"
+
+for mount_spec in "${MOUNTS[@]}"; do
+  # Parse: server:/path|/local|options
+  IFS='|' read -r remote local options <<< "$mount_spec"
+  
+  # Default options if not specified
+  if [ -z "$options" ]; then
+    options="hard,intr,nfsvers=4"
+  fi
+  
+  echo ""
+  echo "Mount: $remote -> $local"
+  echo "  Options: $options"
+  
+  # Create local mount point if needed
+  if [ ! -d "$local" ]; then
+    echo "  Creating mount point: $local"
+    mkdir -p "$local"
+  fi
+  
+  # Check if already in fstab
+  if grep -q "^$remote[[:space:]]" /etc/fstab; then
+    echo "  Already in fstab"
+  else
+    echo "  Adding to fstab..."
+    echo "$remote $local nfs $options 0 0" >> /etc/fstab
+  fi
+  
+  # Check if already mounted
+  if mountpoint -q "$local" 2>/dev/null; then
+    echo "  Already mounted"
+  else
+    echo "  Mounting..."
+    if mount "$local"; then
+      echo "  ✓ Mounted successfully"
+    else
+      echo "  ✗ Mount failed - server may not be available yet"
+      echo "    Will mount on boot when server is reachable"
+    fi
+  fi
+done
+
+echo ""
+echo "Current NFS mounts:"
+mount -t nfs,nfs4 2>/dev/null || echo "  (none currently mounted)"
+
+echo ""
+echo "===== NFS Client Configuration Complete ====="
+echo ""
+echo "Note: If mounts failed, they will be attempted at boot."
+echo "You can also run 'mount -a' after the NFS server is available."
+

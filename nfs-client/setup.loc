@@ -1,0 +1,49 @@
+#!/bin/bash
+# nfs-client/setup.loc - Prepare NFS mount configuration locally
+#
+# Reads mount definitions from yamc.local/nfs-client/mounts.conf
+
+MOUNTS_FILE="$RES_DIR/mounts.conf"
+
+if [ ! -f "$MOUNTS_FILE" ]; then
+  echo "ERROR: No mounts.conf found at $RES_DIR/"
+  echo ""
+  echo "Create $MOUNTS_FILE with format:"
+  echo "  server:/remote/path|/local/path|options"
+  echo ""
+  echo "Example:"
+  echo "  home:/home|/home|hard,intr"
+  echo "  home:/home/media|/home/media|hard,intr"
+  exit 1
+fi
+
+echo "Reading NFS mounts from $MOUNTS_FILE"
+
+# Read and validate mounts
+MOUNT_LIST=""
+while IFS= read -r line || [ -n "$line" ]; do
+  # Skip comments and empty lines
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${line// }" ]] && continue
+  
+  # Validate format: server:path|localpath|options
+  if [[ ! "$line" =~ ^[^:]+:[^|]+\|[^|]+(\|.+)?$ ]]; then
+    echo "WARNING: Invalid format, skipping: $line"
+    echo "  Expected: server:/path|/local/path|options"
+    continue
+  fi
+  
+  echo "  Mount: $line"
+  MOUNT_LIST="$MOUNT_LIST|$line"
+done < "$MOUNTS_FILE"
+
+if [ -z "$MOUNT_LIST" ]; then
+  echo "ERROR: No valid mounts found in $MOUNTS_FILE"
+  exit 1
+fi
+
+# Remove leading pipe
+MOUNT_LIST="${MOUNT_LIST:1}"
+
+echo "NFS_MOUNTS=\"$MOUNT_LIST\"" >> "$MOD_TMP/env"
+
