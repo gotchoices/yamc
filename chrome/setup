@@ -1,0 +1,65 @@
+#!/bin/bash
+# chrome/setup - Install Google Chrome on Ubuntu
+#
+# Usage: yamc -h hostname -u root chrome
+#
+# Adds Google's official apt repository and installs Chrome.
+# Idempotent - safe to run multiple times.
+
+set -e
+
+echo "===== Installing Google Chrome ====="
+
+# Check architecture
+ARCH=$(dpkg --print-architecture)
+if [ "$ARCH" != "amd64" ]; then
+  echo "ERROR: Google Chrome only supports amd64 architecture"
+  echo "Current architecture: $ARCH"
+  exit 1
+fi
+
+# Keyring location (modern approach, not deprecated apt-key)
+KEYRING="/usr/share/keyrings/google-chrome.gpg"
+REPO_FILE="/etc/apt/sources.list.d/google-chrome.list"
+
+# Add Google's signing key if not present
+if [ ! -f "$KEYRING" ]; then
+  echo "Adding Google Chrome signing key..."
+  wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > "$KEYRING"
+  echo "  ✓ Keyring added: $KEYRING"
+else
+  echo "  ✓ Keyring already present"
+fi
+
+# Add repository if not present
+if [ ! -f "$REPO_FILE" ]; then
+  echo "Adding Google Chrome repository..."
+  echo "deb [arch=amd64 signed-by=$KEYRING] http://dl.google.com/linux/chrome/deb/ stable main" > "$REPO_FILE"
+  echo "  ✓ Repository added: $REPO_FILE"
+  
+  # Update package index
+  echo "Updating package index..."
+  apt-get update -qq
+else
+  echo "  ✓ Repository already configured"
+fi
+
+# Install Chrome if not already installed
+if dpkg -l google-chrome-stable 2>/dev/null | grep -q "^ii"; then
+  echo "  ✓ Google Chrome already installed"
+  
+  # Show version
+  CURRENT_VERSION=$(dpkg -l google-chrome-stable | grep "^ii" | awk '{print $3}')
+  echo "  Version: $CURRENT_VERSION"
+else
+  echo "Installing Google Chrome..."
+  apt-get install -y google-chrome-stable
+  echo "  ✓ Google Chrome installed"
+fi
+
+echo ""
+echo "===== Google Chrome Installation Complete ====="
+echo ""
+echo "Chrome can be launched with: google-chrome"
+echo "Or from the application menu."
+
