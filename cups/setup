@@ -1,0 +1,111 @@
+#!/bin/bash
+# cups/setup - Install CUPS and configure printers on Ubuntu
+#
+# Usage: yamc -h hostname -u root cups
+#
+# Printers defined in yamc.local/cups/printers.conf
+
+set -e
+
+echo "===== Configuring CUPS Printing ====="
+
+# Install CUPS and common drivers
+echo "Installing CUPS packages..."
+apt-get update -qq
+apt-get install -y cups cups-client hplip printer-driver-hpcups
+
+# Enable CUPS service
+systemctl enable cups
+systemctl start cups
+
+# Configure CUPS to accept remote connections (optional, for admin)
+CUPSD_CONF="/etc/cups/cupsd.conf"
+if [ ! -f "$CUPSD_CONF.orig" ]; then
+  cp "$CUPSD_CONF" "$CUPSD_CONF.orig"
+fi
+
+# Allow connections from local network for administration
+if ! grep -q "Allow @LOCAL" "$CUPSD_CONF"; then
+  echo "Configuring CUPS for local network access..."
+  # This is a simple approach - could be more sophisticated
+  sed -i 's/Listen localhost:631/Listen 631/' "$CUPSD_CONF" 2>/dev/null || true
+  systemctl restart cups
+fi
+
+# Process printer definitions if present
+if [ -z "$PRINTER_DEFS" ] || [ "$PRINTER_COUNT" = "0" ]; then
+  echo ""
+  echo "No printers to configure."
+  echo "CUPS installed but no printers defined in yamc.local/cups/printers.conf"
+  echo ""
+  echo "===== CUPS Installation Complete ====="
+  exit 0
+fi
+
+echo ""
+echo "Configuring $PRINTER_COUNT printer(s)..."
+
+# Decode printer definitions
+DECODED=$(echo "$PRINTER_DEFS" | base64 -d)
+
+# Process each printer
+while IFS='|' read -r name uri desc driver opts; do
+  [ -z "$name" ] && continue
+  
+  echo ""
+  echo "Configuring printer: $name"
+  echo "  URI: $uri"
+  
+  # Remove existing printer if present (for clean reconfiguration)
+  if lpstat -p "$name" 2>/dev/null; then
+    echo "  Removing existing configuration..."
+    lpadmin -x "$name" 2>/dev/null || true
+  fi
+  
+  # Build lpadmin command
+  CMD="lpadmin -p \"$name\" -E -v \"$uri\""
+  
+  # Add description if provided
+  if [ -n "$desc" ]; then
+    CMD="$CMD -D \"$desc\" -L \"$desc\""
+  fi
+  
+  # Use specified driver or default to driverless (everywhere)
+  if [ -n "$driver" ]; then
+    echo "  Driver: $driver"
+    CMD="$CMD -m \"$driver\""
+  else
+    echo "  Driver: everywhere (driverless IPP)"
+    CMD="$CMD -m everywhere"
+  fi
+  
+  # Add options if provided
+  if [ -n "$opts" ]; then
+    echo "  Options: $opts"
+    CMD="$CMD -o $opts"
+  fi
+  
+  # Execute
+  echo "  Running: $CMD"
+  if eval $CMD; then
+    echo "  ✓ Printer $name configured"
+    
+    # Enable and accept jobs
+    cupsenable "$name" 2>/dev/null || true
+    cupsaccept "$name" 2>/dev/null || true
+  else
+    echo "  ✗ Failed to configure $name"
+  fi
+  
+done <<< "$DECODED"
+
+echo ""
+echo "Configured printers:"
+lpstat -p 2>/dev/null | grep -E "^printer" || echo "  (none)"
+
+echo ""
+echo "===== CUPS Configuration Complete ====="
+echo ""
+echo "Web admin: http://$(hostname):631"
+echo "Print test: lp -d PrinterName /usr/share/cups/data/testprint"
+
