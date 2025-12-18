@@ -1,12 +1,12 @@
 #!/bin/bash
-# dhcp/edit.loc - Edit DHCP configuration file locally
+# dhcp/edit.loc - Edit DHCP hosts configuration locally
 #
-# This script opens your editor on the DHCP configuration.
+# This script opens your editor on the DHCP hosts file.
 # After editing, the changes will be deployed by the remote 'edit' script.
 #
 # Usage: yamc -h hostname -u root dhcp edit
 
-echo "===== Edit DHCP Configuration ====="
+echo "===== Edit DHCP Hosts Configuration ====="
 
 # Validate resources directory
 if [ -z "$RES_DIR" ] || [ ! -d "$RES_DIR" ]; then
@@ -17,25 +17,25 @@ fi
 
 echo "Resources directory: $RES_DIR"
 
-# Check for config file
-if [ ! -f "$RES_DIR/dhcpd.conf" ]; then
-  echo "ERROR: dhcpd.conf not found in $RES_DIR"
+# Check for hosts config file
+if [ ! -f "$RES_DIR/hosts.conf" ]; then
+  echo "ERROR: hosts.conf not found in $RES_DIR"
   exit 1
 fi
 
 # Create backup before editing
 echo "Creating backup..."
-cp "$RES_DIR/dhcpd.conf" "$RES_DIR/dhcpd.conf.bak"
+cp "$RES_DIR/hosts.conf" "$RES_DIR/hosts.conf.bak"
 
 echo ""
-echo "Opening editor for: dhcpd.conf"
+echo "Opening editor for: hosts.conf"
 echo ""
 
 # Use EDITOR environment variable, default to nano
 EDIT_CMD="${EDITOR:-nano}"
 
 # Open editor
-$EDIT_CMD "$RES_DIR/dhcpd.conf"
+$EDIT_CMD "$RES_DIR/hosts.conf"
 
 echo ""
 echo "Editing complete. Changes will be deployed to $tgt_host..."
