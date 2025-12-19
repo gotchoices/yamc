@@ -36,19 +36,27 @@ If your systems mount `/home` via NFS, Chrome's default behavior causes problems
 - **Lock conflicts**: Chrome uses `SingletonLock` files that conflict across machines
 - **Multi-machine**: Can't run Chrome on two machines sharing the same NFS home
 
-### Wrapper Script
+### Wrapper Scripts
 
-Create `yamc.local/chrome/chrome` to install a wrapper that:
-- Stores Chrome profiles locally in `/var/tmp/chrome-$USER/`
-- Detects and reuses existing sessions on the same host
-- Cleans up stale locks from crashed Chrome instances
-- Provides a shorter `chrome` command
+The module installs two wrappers in `yamc.local/chrome/`:
+
+1. **`google-chrome`** - Main wrapper (installed as `/usr/local/bin/google-chrome`)
+   - Intercepts ALL Chrome calls (CLI, GUI launchers, desktop files)
+   - Takes precedence over `/usr/bin/google-chrome` via PATH
+   - Stores profiles locally in `/var/tmp/chrome-$USER/`
+   - Detects and reuses existing sessions on the same host
+   - Cleans up stale locks from crashed Chrome instances
+
+2. **`chrome`** - Convenience wrapper (installed as `/usr/local/bin/chrome`)
+   - Simply calls `google-chrome` with all arguments
+   - Shorter command for CLI use
 
 ### Wrapper Usage
 
 ```bash
-# Normal launch (uses local profile)
+# Normal launch (uses local profile) - all equivalent
 chrome
+google-chrome
 
 # Named profiles for isolation
 chrome -p work
@@ -57,6 +65,8 @@ chrome --profile personal
 # Open a URL
 chrome https://example.com
 ```
+
+**GUI launchers** (application menu, desktop files) automatically use the wrapper too.
 
 ### Tradeoff
 

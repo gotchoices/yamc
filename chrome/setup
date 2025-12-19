@@ -63,36 +63,55 @@ else
   echo "  ✓ Google Chrome installed"
 fi
 
-# Install wrapper script if provided (for NFS home directories)
-if [ -f "$MOD_TMP/chrome-wrapper" ]; then
+# Install wrapper scripts if provided (for NFS home directories)
+if [ -f "$MOD_TMP/google-chrome-wrapper" ]; then
   echo ""
-  echo "Installing chrome wrapper script..."
+  echo "Installing Chrome NFS-safe wrapper..."
   
-  WRAPPER_DEST="/usr/local/bin/chrome"
-  
-  # Check if wrapper needs updating
-  if [ -f "$WRAPPER_DEST" ]; then
-    if cmp -s "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"; then
-      echo "  ✓ Wrapper already installed and up to date"
+  # Install main wrapper as google-chrome (intercepts all calls)
+  MAIN_WRAPPER="/usr/local/bin/google-chrome"
+  if [ -f "$MAIN_WRAPPER" ]; then
+    if cmp -s "$MOD_TMP/google-chrome-wrapper" "$MAIN_WRAPPER"; then
+      echo "  ✓ google-chrome wrapper already up to date"
     else
-      cp "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"
-      chmod 755 "$WRAPPER_DEST"
-      echo "  ✓ Wrapper updated: $WRAPPER_DEST"
+      cp "$MOD_TMP/google-chrome-wrapper" "$MAIN_WRAPPER"
+      chmod 755 "$MAIN_WRAPPER"
+      echo "  ✓ google-chrome wrapper updated: $MAIN_WRAPPER"
     fi
   else
-    cp "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"
-    chmod 755 "$WRAPPER_DEST"
-    echo "  ✓ Wrapper installed: $WRAPPER_DEST"
+    cp "$MOD_TMP/google-chrome-wrapper" "$MAIN_WRAPPER"
+    chmod 755 "$MAIN_WRAPPER"
+    echo "  ✓ google-chrome wrapper installed: $MAIN_WRAPPER"
+  fi
+  
+  # Install convenience wrapper as chrome
+  if [ -f "$MOD_TMP/chrome-wrapper" ]; then
+    CHROME_WRAPPER="/usr/local/bin/chrome"
+    if [ -f "$CHROME_WRAPPER" ]; then
+      if cmp -s "$MOD_TMP/chrome-wrapper" "$CHROME_WRAPPER"; then
+        echo "  ✓ chrome wrapper already up to date"
+      else
+        cp "$MOD_TMP/chrome-wrapper" "$CHROME_WRAPPER"
+        chmod 755 "$CHROME_WRAPPER"
+        echo "  ✓ chrome wrapper updated: $CHROME_WRAPPER"
+      fi
+    else
+      cp "$MOD_TMP/chrome-wrapper" "$CHROME_WRAPPER"
+      chmod 755 "$CHROME_WRAPPER"
+      echo "  ✓ chrome wrapper installed: $CHROME_WRAPPER"
+    fi
   fi
   
   echo ""
   echo "===== Google Chrome Installation Complete ====="
   echo ""
-  echo "Launch Chrome with: chrome"
-  echo "  (wrapper handles NFS home directory issues)"
+  echo "Launch Chrome with: chrome  or  google-chrome"
+  echo "  (wrapper intercepts all calls, handles NFS home directory issues)"
   echo ""
   echo "Named profiles: chrome -p work"
   echo "                chrome --profile personal"
+  echo ""
+  echo "GUI launchers also use the wrapper automatically."
 else
   echo ""
   echo "===== Google Chrome Installation Complete ====="
