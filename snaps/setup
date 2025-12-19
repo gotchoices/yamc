@@ -1,0 +1,91 @@
+#!/bin/bash
+# snaps/setup - Install snap packages on remote Ubuntu system
+#
+# Usage: yamc -h hostname -u root snaps [list_name]
+#
+# Snaps defined in yamc.local/snaps/*.list
+
+set -e
+
+echo "===== Installing Snap Packages ====="
+
+SNAPS_FILE="$MOD_TMP/snaps.list"
+
+if [ ! -f "$SNAPS_FILE" ]; then
+  echo "ERROR: No snaps list found. Check setup.loc."
+  exit 1
+fi
+
+# Ensure snapd is installed and running
+if ! command -v snap &> /dev/null; then
+  echo "Installing snapd..."
+  apt-get update -qq
+  apt-get install -y snapd
+  
+  # Enable and start snapd
+  systemctl enable snapd
+  systemctl start snapd
+  
+  # Wait for snapd to be ready
+  echo "Waiting for snapd to initialize..."
+  sleep 5
+  snap wait system seed.loaded
+fi
+
+echo "snapd is ready"
+echo ""
+
+# Counters
+INSTALLED=0
+ALREADY=0
+FAILED=0
+FAILED_LIST=""
+
+# Process each snap
+while IFS= read -r snap_entry || [ -n "$snap_entry" ]; do
+  [ -z "$snap_entry" ] && continue
+  
+  # Parse: snapname [options]
+  # e.g., "code --classic" or "firefox" or "freecad"
+  snap_name=$(echo "$snap_entry" | awk '{print $1}')
+  snap_opts=$(echo "$snap_entry" | cut -d' ' -f2- -s)
+  
+  echo -n "  $snap_name"
+  [ -n "$snap_opts" ] && echo -n " ($snap_opts)"
+  echo -n "... "
+  
+  # Check if already installed
+  if snap list "$snap_name" &>/dev/null; then
+    echo "already installed"
+    ALREADY=$((ALREADY + 1))
+  else
+    # Install the snap
+    if snap install $snap_name $snap_opts 2>/dev/null; then
+      echo "installed"
+      INSTALLED=$((INSTALLED + 1))
+    else
+      echo "FAILED"
+      FAILED=$((FAILED + 1))
+      FAILED_LIST="$FAILED_LIST $snap_name"
+    fi
+  fi
+done < "$SNAPS_FILE"
+
+echo ""
+echo "===== Snap Installation Summary ====="
+echo "Already installed: $ALREADY"
+echo "Newly installed:   $INSTALLED"
+echo "Failed:            $FAILED"
+
+if [ -n "$FAILED_LIST" ]; then
+  echo ""
+  echo "Failed snaps:$FAILED_LIST"
+fi
+
+echo ""
+echo "===== Snap Installation Complete ====="
+
+if [ "$FAILED" -gt 0 ]; then
+  exit 1
+fi
+

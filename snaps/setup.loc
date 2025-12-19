@@ -1,0 +1,67 @@
+#!/bin/bash
+# snaps/setup.loc - Prepare snap package list locally
+#
+# Usage: yamc -h host -u root snaps [list_name]
+# Examples:
+#   yamc -h host -u root snaps           # Install from 'default' list
+#   yamc -h host -u root snaps cad       # Install from 'cad' list
+#   yamc -h host -u root snaps default cad  # Install from multiple lists
+
+# Default to 'default' if no list specified
+if [ $# -eq 0 ]; then
+  LISTS="default"
+else
+  LISTS="$*"
+fi
+
+echo "Snap lists requested: $LISTS"
+
+# Collect all snaps from all requested lists
+SNAPS_TMP="$MOD_TMP/snaps.list"
+> "$SNAPS_TMP"
+
+SNAP_COUNT=0
+MISSING_LISTS=""
+
+for list in $LISTS; do
+  list_file="$RES_DIR/${list}.list"
+  
+  if [ -f "$list_file" ]; then
+    echo "Found list: $list_file"
+    
+    # Read snaps, skip comments and empty lines
+    while IFS= read -r line || [ -n "$line" ]; do
+      # Skip comments and empty lines
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line// }" ]] && continue
+      
+      # Handle inline comments (snap # comment)
+      # Format: snapname [--classic|--edge|--channel=X]
+      snap_entry=$(echo "$line" | sed 's/#.*//' | xargs)
+      if [ -n "$snap_entry" ]; then
+        echo "$snap_entry" >> "$SNAPS_TMP"
+        SNAP_COUNT=$((SNAP_COUNT + 1))
+      fi
+    done < "$list_file"
+  else
+    echo "WARNING: List file not found: $list_file"
+    MISSING_LISTS="$MISSING_LISTS $list"
+  fi
+done
+
+if [ -n "$MISSING_LISTS" ]; then
+  echo ""
+  echo "Missing list files:$MISSING_LISTS"
+  echo "Available lists in $RES_DIR:"
+  ls -1 "$RES_DIR"/*.list 2>/dev/null | xargs -I{} basename {} .list || echo "  (none)"
+fi
+
+if [ "$SNAP_COUNT" -eq 0 ]; then
+  echo "ERROR: No snaps found to install"
+  exit 1
+fi
+
+echo ""
+echo "Snaps to install: $SNAP_COUNT"
+echo "SNAP_COUNT=$SNAP_COUNT" >> "$MOD_TMP/env"
+
