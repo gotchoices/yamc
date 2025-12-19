@@ -1,9 +1,8 @@
 #!/bin/bash
-# k/setup - Install K editor
+# k/setup - Install K editor from GitHub
 #
-# This script installs the K editor from source.
-# It unpacks the k21.tgz archive, builds the editor,
-# and installs it system-wide.
+# This script clones the K editor from https://github.com/gotchoices/k.git,
+# switches to the k46 branch, builds it, and installs it system-wide.
 #
 # Usage: yamc -h hostname -u root k
 
@@ -15,91 +14,78 @@ echo "===== Installing K Editor ====="
 if command -v apt-get &> /dev/null; then
   echo "Installing dependencies using apt..."
   apt-get update -q
-  apt-get install -y gcc make
+  apt-get install -y git gcc make ncurses-dev
 elif command -v dnf &> /dev/null; then
   echo "Installing dependencies using dnf..."
-  dnf install -y gcc make
+  dnf install -y git gcc make ncurses-devel
 elif command -v yum &> /dev/null; then
   echo "Installing dependencies using yum..."
-  yum install -y gcc make
+  yum install -y git gcc make ncurses-devel
 else
-  echo "WARNING: Unknown package manager. Make sure gcc and make are installed."
+  echo "WARNING: Unknown package manager. Make sure git, gcc, make and ncurses-dev are installed."
 fi
 
-# Use a temporary build directory with full permissions
+# Always fetch and install the latest version
+# This ensures we get updates but is still safe to run multiple times
+
+# Use a temporary build directory
 BUILD_DIR="/var/tmp/k-build"
 
-# Create build directory if it doesn't exist
-if [ ! -d "$BUILD_DIR" ]; then
+# Check if repository is already cloned
+if [ -d "$BUILD_DIR/k" ] && [ -d "$BUILD_DIR/k/.git" ]; then
+  echo "Repository already exists. Updating to latest main branch..."
+  cd "$BUILD_DIR/k"
+
+  # Always fetch and pull latest changes from main
+  echo "Fetching latest changes from GitHub..."
+  git fetch origin main
+  git pull origin main
+else
+  # Clean up any previous incomplete build
+  if [ -d "$BUILD_DIR" ]; then
+    echo "Cleaning previous build directory..."
+    rm -rf "$BUILD_DIR"
+  fi
+
+  # Create build directory and clone
   echo "Creating build directory..."
   mkdir -p "$BUILD_DIR"
+  cd "$BUILD_DIR"
+
+  echo "Cloning K editor repository..."
+  git clone https://github.com/gotchoices/k.git k
+  cd k
 fi
 
-# Check if source is already unpacked
-if [ ! -d "$BUILD_DIR/k21" ]; then
-  echo "Unpacking K editor source..."
-  tar -xzf "$MOD_DIR/k21.tgz" -C "$BUILD_DIR"
-  echo "Source unpacked successfully."
-else
-  echo "K editor source already unpacked."
+# Build and install using Makefile.k (handles configure automatically)
+echo "Building K editor from k46 directory..."
+cd "$BUILD_DIR/k/k46"
+
+# Ensure configure has been run (generates joe/autoconf.h which is needed as config.h)
+if [ ! -f Makefile ] || [ ! -f joe/autoconf.h ]; then
+  echo "Running configure to generate build files..."
+  ./configure
 fi
 
-# Build the editor
-echo "Building K editor..."
-cd "$BUILD_DIR/k21"
-
-# Check if already built
-if [ -f "./k" ]; then
-  echo "K editor already built. Cleaning previous build..."
-  make clean
+# Create symlink from config.h to autoconf.h if needed
+# (source code includes "config.h" but configure generates "autoconf.h")
+if [ -f joe/autoconf.h ] && [ ! -f joe/config.h ]; then
+  echo "Creating config.h symlink..."
+  ln -s autoconf.h joe/config.h
 fi
 
-# Compile the editor
-echo "Compiling K editor..."
-make
-if [ ! -f "./k" ]; then
-  echo "ERROR: Build failed. K editor binary not found."
-  exit 1
-fi
-echo "K editor built successfully."
+# Makefile.k handles configure automatically if needed, then builds
+make -f Makefile.k
 
-# Install the editor
 echo "Installing K editor..."
-# Most Makefiles have an 'install' target, but if not, we'll handle it manually
-if grep -q "install:" Makefile; then
-  make install
-else
-  # Manual installation if no install target
-  echo "No install target found in Makefile. Installing manually..."
-  install -m 755 k /usr/local/bin/
-fi
-
-# Create backup directory
-if [ ! -d /var/tmp/kback ]; then
-  echo "Creating backup directory..."
-  mkdir -m 777 /var/tmp/kback
-fi
+make -f Makefile.k install
 
 # Install termcap file if needed
 if [ ! -f /etc/termcap ] && [ -f "$MOD_DIR/termcap" ]; then
   echo "Installing termcap file..."
   install -m 644 "$MOD_DIR/termcap" /etc/
-fi
-
-# Set up daily backup cron job
-if [ -d /etc/cron.daily ] && [ -f "$MOD_DIR/cron-kback.sh" ]; then
-  echo "Setting up daily backup..."
-  install -m 755 "$MOD_DIR/cron-kback.sh" /etc/cron.daily/kback
-fi
-
-# Note: The Makefile already installs the krc file to /usr/local/lib/krc
-# We will check if the file exists and if not, install our version to /usr/local/lib
-if [ ! -f "/usr/local/lib/krc" ] && [ -f "$MOD_DIR/krc" ]; then
-  echo "Installing custom krc configuration file..."
-  # Create directory if needed
-  mkdir -p /usr/local/lib
-  install -m 644 "$MOD_DIR/krc" /usr/local/lib/
-  echo "Custom krc file installed to /usr/local/lib/krc"
+elif [ -f /etc/termcap ]; then
+  echo "Termcap file already exists."
 fi
 
 # Test if k is correctly installed

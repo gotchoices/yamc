@@ -1,17 +1,7 @@
 #!/bin/bash
-# k/setup.loc - Prepare for K editor installation
-#
-# This local script verifies that the k21.tgz archive exists
-# and does any necessary local preparation.
+# k/setup.loc - Prepare K editor installation locally
 
-# Verify that the archive exists
-if [ ! -f "$MOD_DIR/k21.tgz" ]; then
-  echo "ERROR: k21.tgz archive not found in $MOD_DIR"
-  exit 1
-fi
+# The setup script clones directly from GitHub, so no local resources needed
+# except for the termcap file which is included in the module
 
-# No specific variables need to be passed to the remote script
-# But we'll set a flag to indicate this is a YAMC installation
-echo "K_YAMC_INSTALL=true" >> "$MOD_TMP/env"
-
-echo "K editor installation preparation complete."
+echo "K editor setup: will clone from https://github.com/gotchoices/k.git"

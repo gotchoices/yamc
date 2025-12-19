@@ -1,0 +1,114 @@
+#!/bin/bash
+# k/setup - Install K editor
+#
+# This script installs the K editor from source.
+# It unpacks the k21.tgz archive, builds the editor,
+# and installs it system-wide.
+#
+# Usage: yamc -h hostname -u root k
+
+set -e  # Exit on any error
+
+echo "===== Installing K Editor ====="
+
+# Install required dependencies
+if command -v apt-get &> /dev/null; then
+  echo "Installing dependencies using apt..."
+  apt-get update -q
+  apt-get install -y gcc make
+elif command -v dnf &> /dev/null; then
+  echo "Installing dependencies using dnf..."
+  dnf install -y gcc make
+elif command -v yum &> /dev/null; then
+  echo "Installing dependencies using yum..."
+  yum install -y gcc make
+else
+  echo "WARNING: Unknown package manager. Make sure gcc and make are installed."
+fi
+
+# Use a temporary build directory with full permissions
+BUILD_DIR="/var/tmp/k-build"
+
+# Create build directory if it doesn't exist
+if [ ! -d "$BUILD_DIR" ]; then
+  echo "Creating build directory..."
+  mkdir -p "$BUILD_DIR"
+fi
+
+# Check if source is already unpacked
+if [ ! -d "$BUILD_DIR/k21" ]; then
+  echo "Unpacking K editor source..."
+  tar -xzf "$MOD_DIR/k21.tgz" -C "$BUILD_DIR"
+  echo "Source unpacked successfully."
+else
+  echo "K editor source already unpacked."
+fi
+
+# Build the editor
+echo "Building K editor..."
+cd "$BUILD_DIR/k21"
+
+# Check if already built
+if [ -f "./k" ]; then
+  echo "K editor already built. Cleaning previous build..."
+  make clean
+fi
+
+# Compile the editor
+echo "Compiling K editor..."
+make
+if [ ! -f "./k" ]; then
+  echo "ERROR: Build failed. K editor binary not found."
+  exit 1
+fi
+echo "K editor built successfully."
+
+# Install the editor
+echo "Installing K editor..."
+# Most Makefiles have an 'install' target, but if not, we'll handle it manually
+if grep -q "install:" Makefile; then
+  make install
+else
+  # Manual installation if no install target
+  echo "No install target found in Makefile. Installing manually..."
+  install -m 755 k /usr/local/bin/
+fi
+
+# Create backup directory
+if [ ! -d /var/tmp/kback ]; then
+  echo "Creating backup directory..."
+  mkdir -m 777 /var/tmp/kback
+fi
+
+# Install termcap file if needed
+if [ ! -f /etc/termcap ] && [ -f "$MOD_DIR/termcap" ]; then
+  echo "Installing termcap file..."
+  install -m 644 "$MOD_DIR/termcap" /etc/
+fi
+
+# Set up daily backup cron job
+if [ -d /etc/cron.daily ] && [ -f "$MOD_DIR/cron-kback.sh" ]; then
+  echo "Setting up daily backup..."
+  install -m 755 "$MOD_DIR/cron-kback.sh" /etc/cron.daily/kback
+fi
+
+# Note: The Makefile already installs the krc file to /usr/local/lib/krc
+# We will check if the file exists and if not, install our version to /usr/local/lib
+if [ ! -f "/usr/local/lib/krc" ] && [ -f "$MOD_DIR/krc" ]; then
+  echo "Installing custom krc configuration file..."
+  # Create directory if needed
+  mkdir -p /usr/local/lib
+  install -m 644 "$MOD_DIR/krc" /usr/local/lib/
+  echo "Custom krc file installed to /usr/local/lib/krc"
+fi
+
+# Test if k is correctly installed
+if command -v k &> /dev/null; then
+  echo "K editor is now installed and available."
+else
+  echo "WARNING: K editor installation complete, but 'k' command not found in PATH."
+  echo "You may need to add /usr/local/bin to your PATH or restart your shell."
+fi
+
+echo "===== K Editor Installation Complete ====="
+exit 0

@@ -1,68 +1,60 @@
 # K Editor Module
 
-This YAMC module installs the K editor, a lightweight text editor for Unix-like systems.
+Installs the K text editor from the official GitHub repository.
 
-## Purpose
+## What It Does
 
-The K editor provides a simple yet powerful text editing experience with features including:
-
-- Lightweight and fast operation
-- Support for standard editing operations
-- Configurable through the krc file
-- Automatic backup functionality
+1. **Always fetches latest**: Clones or updates from https://github.com/gotchoices/k.git main branch
+2. **Always rebuilds**: Uses `make -f Makefile.k` (handles configure automatically)
+3. **Always installs**: Updates to latest version even if already installed
+4. **Idempotent**: Safe to run multiple times (no harm, just gets latest)
+5. **Termcap**: Installs `/etc/termcap` if needed
 
 ## Usage
 
 ```bash
-# Install K editor
 yamc -h hostname -u root k
 ```
 
-## What It Does
-
-1. Installs necessary dependencies (gcc, make)
-2. Unpacks the k21.tgz source archive to a build directory in /var/tmp
-3. Builds the K editor from source
-4. Installs the editor system-wide
-5. Sets up:
-   - Termcap file in /etc if needed
-   - Backup directory in /var/tmp/kback
-   - Configuration file in /usr/local/lib/krc (via Makefile)
-   - Daily backup via cron
-
 ## Requirements
 
-- Root access on the target system
-- Linux-based operating system
-- Build tools (gcc, make) will be installed if missing
+- Root access
+- Internet connection for cloning
+- Build dependencies: git, gcc, make, ncurses-dev
 
-## Files
+## Dependencies Installed
 
-- `k21.tgz`: Source archive for the K editor
-- `krc`: Configuration file for the editor
-- `termcap`: Terminal capabilities database
-- `cron-kback.sh`: Script installed as cron job to maintain backup directory
+The module automatically installs:
+- `git` (for cloning)
+- `gcc` (for compilation)
+- `make` (for building)
+- `ncurses-dev` (terminal library required for configure)
 
-## Post-Installation
+## Behavior
 
-After installation, the K editor will be available as the command `k` in the system PATH.
+The module always ensures you have the latest k46 version:
 
-## Troubleshooting
+- **First run**: Clone repository → build → install
+- **Subsequent runs**: Update repository → rebuild → reinstall
+- **Safe re-runs**: Always gets latest, no harm in running multiple times
+- **Repository cached**: Uses `/var/tmp/k-build/k` to avoid full re-clone each time
 
-If installation fails:
+## Differences from Old Version
 
-1. Check that gcc and make are available
-2. Verify that the source unpacks correctly
-3. Look for compilation errors in the build output
-4. Ensure the target system has sufficient disk space
+**Removed:**
+- Pre-packaged k21.tgz archive
+- `/usr/local/lib/krc` configuration file
+- Daily backup cron job (`kback`)
 
-For systems where the automatic installation doesn't work, you can try manual installation:
+**Added:**
+- Direct GitHub cloning from main branch
+- Builds from k46/ subdirectory
+- Streamlined installation
 
-```bash
-# Extract the source
-tar -xzf k21.tgz
-cd k21
-# Build and install
-make
-make install  # or: cp k /usr/local/bin/
-```
+## Location
+
+Installed to `/usr/local/bin/k` (via `make install`)
+
+## Configuration
+
+The editor uses termcap for terminal compatibility. The module installs `/etc/termcap` if it doesn't exist.
