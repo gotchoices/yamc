@@ -1,0 +1,127 @@
+#!/bin/bash
+# system/setup - Deploy system files to remote Ubuntu system
+#
+# Copies files from yamc.local/system/ preserving structure
+# Applies sed edits from __edits__/*.sed files
+# Runs hooks from __hooks__/*.sh
+
+set -e
+
+echo "===== Deploying System Files ====="
+
+# Check for manifest
+MANIFEST="$MOD_TMP/manifest.txt"
+EDITS_MANIFEST="$MOD_TMP/edits.txt"
+HOOKS_MANIFEST="$MOD_TMP/hooks.txt"
+
+COPIED=0
+EDITED=0
+FAILED_EDITS=""
+
+# --- Phase 1: Copy files ---
+if [ -f "$MANIFEST" ] && [ -s "$MANIFEST" ]; then
+  echo ""
+  echo "Copying files..."
+  
+  while IFS= read -r relpath || [ -n "$relpath" ]; do
+    [ -z "$relpath" ] && continue
+    
+    src="$RES_DIR/$relpath"
+    dest="/$relpath"
+    destdir=$(dirname "$dest")
+    
+    # Create destination directory if needed
+    if [ ! -d "$destdir" ]; then
+      echo "  Creating directory: $destdir"
+      mkdir -p "$destdir"
+    fi
+    
+    # Determine permissions
+    case "$relpath" in
+      */bin/*|*/sbin/*|*.sh)
+        mode=755
+        ;;
+      *)
+        mode=644
+        ;;
+    esac
+    
+    echo "  $relpath -> $dest (mode $mode)"
+    cp "$src" "$dest"
+    chmod "$mode" "$dest"
+    chown root:root "$dest"
+    
+    COPIED=$((COPIED + 1))
+  done < "$MANIFEST"
+  
+  echo "Copied: $COPIED files"
+fi
+
+# --- Phase 2: Apply edits ---
+if [ -f "$EDITS_MANIFEST" ] && [ -s "$EDITS_MANIFEST" ]; then
+  echo ""
+  echo "Applying edits..."
+  
+  while IFS='|' read -r sedfile target || [ -n "$sedfile" ]; do
+    [ -z "$sedfile" ] && continue
+    
+    echo "  Editing: $target"
+    
+    if [ ! -f "$target" ]; then
+      echo "    WARNING: Target file does not exist, skipping"
+      FAILED_EDITS="$FAILED_EDITS $target"
+      continue
+    fi
+    
+    # Backup original if not already backed up
+    if [ ! -f "${target}.orig" ]; then
+      cp "$target" "${target}.orig"
+      echo "    Backed up to ${target}.orig"
+    fi
+    
+    # Apply sed commands (skip the #@target line)
+    if sed -i -f <(tail -n +2 "$MOD_TMP/$sedfile") "$target"; then
+      echo "    Applied successfully"
+      EDITED=$((EDITED + 1))
+    else
+      echo "    ERROR: sed failed"
+      FAILED_EDITS="$FAILED_EDITS $target"
+    fi
+  done < "$EDITS_MANIFEST"
+  
+  echo "Edited: $EDITED files"
+fi
+
+# --- Phase 3: Run hooks ---
+if [ -f "$HOOKS_MANIFEST" ] && [ -s "$HOOKS_MANIFEST" ]; then
+  echo ""
+  echo "Running hooks..."
+  
+  while IFS= read -r hook || [ -n "$hook" ]; do
+    [ -z "$hook" ] && continue
+    
+    echo "  Running: $hook"
+    
+    # Make hook executable and run it
+    chmod +x "$MOD_TMP/$hook"
+    if bash "$MOD_TMP/$hook"; then
+      echo "    Completed"
+    else
+      echo "    WARNING: Hook returned non-zero exit code"
+    fi
+  done < "$HOOKS_MANIFEST"
+fi
+
+# --- Summary ---
+echo ""
+echo "===== System Deployment Summary ====="
+echo "Files copied: $COPIED"
+echo "Files edited: $EDITED"
+
+if [ -n "$FAILED_EDITS" ]; then
+  echo "Failed edits:$FAILED_EDITS"
+fi
+
+echo ""
+echo "===== System Deployment Complete ====="
+

@@ -1,0 +1,95 @@
+#!/bin/bash
+# system/setup.loc - Prepare system files for deployment
+#
+# Copies files from yamc.local/system/ to remote system
+# Applies sed edits from yamc.local/system/__edits__/
+# Runs hooks from yamc.local/system/__hooks__/
+
+SYSTEM_DIR="$RES_DIR"
+
+if [ ! -d "$SYSTEM_DIR" ]; then
+  echo "ERROR: No system directory found at $RES_DIR"
+  exit 1
+fi
+
+# Ensure MOD_TMP is absolute
+MOD_TMP_ABS="$(cd "$MOD_TMP" && pwd)"
+
+# Count what we're deploying
+FILE_COUNT=0
+EDIT_COUNT=0
+HOOK_COUNT=0
+
+# Find files to copy (exclude __*__ directories)
+if [ -d "$SYSTEM_DIR" ]; then
+  # Create manifest of files to copy
+  MANIFEST="$MOD_TMP_ABS/manifest.txt"
+  > "$MANIFEST"
+  
+  # Use subshell to avoid changing directory in main shell
+  (
+    cd "$SYSTEM_DIR"
+    find . -type f ! -path './__*__/*' | while read -r file; do
+      # Strip leading ./
+      relpath="${file#./}"
+      echo "$relpath"
+    done
+  ) > "$MANIFEST"
+  
+  FILE_COUNT=$(wc -l < "$MANIFEST" | tr -d ' ')
+  echo "Files to copy: $FILE_COUNT"
+fi
+
+# Find edit scripts
+EDITS_DIR="$SYSTEM_DIR/__edits__"
+EDITS_MANIFEST="$MOD_TMP_ABS/edits.txt"
+> "$EDITS_MANIFEST"
+
+if [ -d "$EDITS_DIR" ]; then
+  for sedfile in "$EDITS_DIR"/*.sed; do
+    [ -f "$sedfile" ] || continue
+    
+    # Extract target from first line: #@target: /path/to/file
+    target=$(head -1 "$sedfile" | grep '^#@target:' | sed 's/^#@target:[[:space:]]*//')
+    
+    if [ -z "$target" ]; then
+      echo "WARNING: No #@target: header in $(basename "$sedfile"), skipping"
+      continue
+    fi
+    
+    bname=$(basename "$sedfile")
+    echo "$bname|$target" >> "$EDITS_MANIFEST"
+    
+    # Copy sed file to temp
+    cp "$sedfile" "$MOD_TMP_ABS/$bname"
+    
+    echo "  Edit: $bname -> $target"
+    EDIT_COUNT=$((EDIT_COUNT + 1))
+  done
+  echo "Edits to apply: $EDIT_COUNT"
+fi
+
+# Find hooks
+HOOKS_DIR="$SYSTEM_DIR/__hooks__"
+HOOKS_MANIFEST="$MOD_TMP_ABS/hooks.txt"
+> "$HOOKS_MANIFEST"
+
+if [ -d "$HOOKS_DIR" ]; then
+  for hook in "$HOOKS_DIR"/*.sh; do
+    [ -f "$hook" ] || continue
+    
+    bname=$(basename "$hook")
+    echo "$bname" >> "$HOOKS_MANIFEST"
+    cp "$hook" "$MOD_TMP_ABS/$bname"
+    
+    echo "  Hook: $bname"
+    HOOK_COUNT=$((HOOK_COUNT + 1))
+  done
+  echo "Hooks to run: $HOOK_COUNT"
+fi
+
+# Export counts
+echo "FILE_COUNT=$FILE_COUNT" >> "$MOD_TMP_ABS/env"
+echo "EDIT_COUNT=$EDIT_COUNT" >> "$MOD_TMP_ABS/env"
+echo "HOOK_COUNT=$HOOK_COUNT" >> "$MOD_TMP_ABS/env"
+
