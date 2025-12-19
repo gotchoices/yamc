@@ -22,7 +22,24 @@ if ! dpkg -s lightdm &> /dev/null; then
   exit 1
 fi
 
-# 1. Set graphical target as default (boot to GUI)
+# 1. Install lightdm-gtk-greeter if not present (XFCE-appropriate greeter)
+if ! dpkg -s lightdm-gtk-greeter &> /dev/null; then
+  echo "Installing lightdm-gtk-greeter..."
+  apt-get update -qq
+  apt-get install -y lightdm-gtk-greeter
+fi
+
+# 2. Configure LightDM to use gtk-greeter and xfce session
+echo "Configuring LightDM for XFCE..."
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat > /etc/lightdm/lightdm.conf.d/50-xfce.conf << 'EOF'
+[Seat:*]
+greeter-session=lightdm-gtk-greeter
+user-session=xfce
+EOF
+echo "  ✓ Created /etc/lightdm/lightdm.conf.d/50-xfce.conf"
+
+# 3. Set graphical target as default (boot to GUI)
 echo "Setting graphical.target as default boot target..."
 CURRENT_TARGET=$(systemctl get-default)
 if [ "$CURRENT_TARGET" != "graphical.target" ]; then
@@ -32,18 +49,18 @@ else
   echo "  Already set to graphical.target"
 fi
 
-# 2. Enable lightdm
+# 4. Enable lightdm
 echo "Enabling lightdm display manager..."
 systemctl enable lightdm
 
-# 3. Install gdmflexiserver helper if provided
+# 5. Install gdmflexiserver helper if provided
 if [ -f "$MOD_TMP/gdmflexiserver" ]; then
   echo "Installing gdmflexiserver helper to /usr/local/bin..."
   cp "$MOD_TMP/gdmflexiserver" /usr/local/bin/gdmflexiserver
   chmod 755 /usr/local/bin/gdmflexiserver
 fi
 
-# 4. Ensure gnome-keyring unlocks on login (for password managers, etc.)
+# 6. Ensure gnome-keyring unlocks on login (for password managers, etc.)
 echo "Checking PAM configuration for gnome-keyring..."
 if [ -f /etc/pam.d/lightdm ]; then
   if grep -q "pam_gnome_keyring.so" /etc/pam.d/lightdm; then
@@ -57,7 +74,7 @@ if [ -f /etc/pam.d/lightdm ]; then
   fi
 fi
 
-# 5. Start lightdm if not already running (optional - may kick user out of SSH)
+# 7. Note about starting lightdm
 echo ""
 echo "Configuration complete."
 echo ""

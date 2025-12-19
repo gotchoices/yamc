@@ -10,10 +10,12 @@ Configures an Ubuntu system for graphical boot with XFCE desktop environment.
 
 ## What This Module Does
 
-1. **Sets graphical.target** - System boots to GUI instead of text console
-2. **Enables lightdm** - Display manager starts on boot
-3. **Installs gdmflexiserver** - Helper script for screen lock (if provided in yamc.local)
-4. **Configures PAM** - Ensures gnome-keyring unlocks on login
+1. **Installs lightdm-gtk-greeter** - Correct greeter for XFCE (not unity-greeter)
+2. **Configures LightDM** - Sets `greeter-session=lightdm-gtk-greeter` and `user-session=xfce`
+3. **Sets graphical.target** - System boots to GUI instead of text console
+4. **Enables lightdm** - Display manager starts on boot
+5. **Installs gdmflexiserver** - Helper script for screen lock (if provided in yamc.local)
+6. **Configures PAM** - Ensures gnome-keyring unlocks on login
 
 ## Usage
 
@@ -59,6 +61,24 @@ This will be installed to `/usr/local/bin/gdmflexiserver`.
 
 ## Troubleshooting
 
+### "Session ubuntu is not available" / Login fails
+
+This happens if the wrong greeter or session is configured. Fix:
+```bash
+# Verify xfce session exists
+ls /usr/share/xsessions/
+
+# Check/create the config
+cat /etc/lightdm/lightdm.conf.d/50-xfce.conf
+# Should contain:
+# [Seat:*]
+# greeter-session=lightdm-gtk-greeter
+# user-session=xfce
+
+# Re-run the module to fix
+yamc -h host -u root xfce
+```
+
 ### Black screen after boot
 
 Check if lightdm is running:
@@ -76,6 +96,13 @@ cat /var/log/Xorg.0.log | grep EE
 If another DM (gdm3) was installed, reconfigure:
 ```bash
 dpkg-reconfigure lightdm
+```
+
+### Wrong greeter (unity-greeter instead of gtk-greeter)
+
+```bash
+apt install lightdm-gtk-greeter
+# Then re-run xfce module to configure it
 ```
 
 ### Screen lock not working
