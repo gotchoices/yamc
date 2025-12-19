@@ -19,8 +19,11 @@ fi
 
 echo "Reading NFS mounts from $MOUNTS_FILE"
 
-# Read and validate mounts
-MOUNT_LIST=""
+# Read and validate mounts, write to a file for remote script
+MOUNTS_TMP="$MOD_TMP/mounts.list"
+> "$MOUNTS_TMP"
+
+MOUNT_COUNT=0
 while IFS= read -r line || [ -n "$line" ]; do
   # Skip comments and empty lines
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -34,16 +37,13 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
   
   echo "  Mount: $line"
-  MOUNT_LIST="$MOUNT_LIST|$line"
+  echo "$line" >> "$MOUNTS_TMP"
+  MOUNT_COUNT=$((MOUNT_COUNT + 1))
 done < "$MOUNTS_FILE"
 
-if [ -z "$MOUNT_LIST" ]; then
+if [ "$MOUNT_COUNT" -eq 0 ]; then
   echo "ERROR: No valid mounts found in $MOUNTS_FILE"
   exit 1
 fi
 
-# Remove leading pipe
-MOUNT_LIST="${MOUNT_LIST:1}"
-
-echo "NFS_MOUNTS=\"$MOUNT_LIST\"" >> "$MOD_TMP/env"
-
+echo "NFS_MOUNT_COUNT=$MOUNT_COUNT" >> "$MOD_TMP/env"

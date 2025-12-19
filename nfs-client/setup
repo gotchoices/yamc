@@ -9,8 +9,10 @@ set -e
 
 echo "===== Configuring NFS Client ====="
 
-if [ -z "$NFS_MOUNTS" ]; then
-  echo "ERROR: No NFS mounts specified"
+MOUNTS_FILE="$MOD_TMP/mounts.list"
+
+if [ ! -f "$MOUNTS_FILE" ]; then
+  echo "ERROR: No mounts list found. Check setup.loc."
   exit 1
 fi
 
@@ -40,12 +42,9 @@ fi
 echo ""
 echo "Processing NFS mounts..."
 
-# Split by pipe delimiter
-IFS='|' read -ra MOUNTS <<< "$NFS_MOUNTS"
-
-for mount_spec in "${MOUNTS[@]}"; do
-  # Parse: server:/path|/local|options
-  IFS='|' read -r remote local options <<< "$mount_spec"
+while IFS='|' read -r remote local options || [ -n "$remote" ]; do
+  # Skip empty lines
+  [ -z "$remote" ] && continue
   
   # Default options if not specified
   if [ -z "$options" ]; then
@@ -55,6 +54,12 @@ for mount_spec in "${MOUNTS[@]}"; do
   echo ""
   echo "Mount: $remote -> $local"
   echo "  Options: $options"
+  
+  # Validate we have both remote and local
+  if [ -z "$local" ]; then
+    echo "  ERROR: Missing local mount point, skipping"
+    continue
+  fi
   
   # Create local mount point if needed
   if [ ! -d "$local" ]; then
@@ -82,7 +87,7 @@ for mount_spec in "${MOUNTS[@]}"; do
       echo "    Will mount on boot when server is reachable"
     fi
   fi
-done
+done < "$MOUNTS_FILE"
 
 echo ""
 echo "Current NFS mounts:"
@@ -93,4 +98,3 @@ echo "===== NFS Client Configuration Complete ====="
 echo ""
 echo "Note: If mounts failed, they will be attempted at boot."
 echo "You can also run 'mount -a' after the NFS server is available."
-
