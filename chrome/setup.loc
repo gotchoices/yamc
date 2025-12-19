@@ -1,0 +1,11 @@
+#!/bin/bash
+# chrome/setup.loc - Prepare Chrome wrapper locally
+
+# Copy the chrome wrapper script if it exists in resources
+if [ -f "$RES_DIR/chrome" ]; then
+    cp "$RES_DIR/chrome" "$MOD_TMP/chrome-wrapper"
+    echo "Found chrome wrapper script"
+else
+    echo "No chrome wrapper script in $RES_DIR (optional)"
+fi
+

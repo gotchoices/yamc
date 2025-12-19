@@ -4,11 +4,17 @@
 # Usage: yamc -h hostname -u root chrome
 #
 # Adds Google's official apt repository and installs Chrome.
+# Optionally installs a wrapper script for NFS environments.
 # Idempotent - safe to run multiple times.
 
 set -e
 
 echo "===== Installing Google Chrome ====="
+
+# Source environment from setup.loc
+if [ -f "$MOD_TMP/env" ]; then
+  . "$MOD_TMP/env"
+fi
 
 # Check architecture
 ARCH=$(dpkg --print-architecture)
@@ -57,9 +63,41 @@ else
   echo "  ✓ Google Chrome installed"
 fi
 
-echo ""
-echo "===== Google Chrome Installation Complete ====="
-echo ""
-echo "Chrome can be launched with: google-chrome"
-echo "Or from the application menu."
+# Install wrapper script if provided (for NFS home directories)
+if [ -f "$MOD_TMP/chrome-wrapper" ]; then
+  echo ""
+  echo "Installing chrome wrapper script..."
+  
+  WRAPPER_DEST="/usr/local/bin/chrome"
+  
+  # Check if wrapper needs updating
+  if [ -f "$WRAPPER_DEST" ]; then
+    if cmp -s "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"; then
+      echo "  ✓ Wrapper already installed and up to date"
+    else
+      cp "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"
+      chmod 755 "$WRAPPER_DEST"
+      echo "  ✓ Wrapper updated: $WRAPPER_DEST"
+    fi
+  else
+    cp "$MOD_TMP/chrome-wrapper" "$WRAPPER_DEST"
+    chmod 755 "$WRAPPER_DEST"
+    echo "  ✓ Wrapper installed: $WRAPPER_DEST"
+  fi
+  
+  echo ""
+  echo "===== Google Chrome Installation Complete ====="
+  echo ""
+  echo "Launch Chrome with: chrome"
+  echo "  (wrapper handles NFS home directory issues)"
+  echo ""
+  echo "Named profiles: chrome -p work"
+  echo "                chrome --profile personal"
+else
+  echo ""
+  echo "===== Google Chrome Installation Complete ====="
+  echo ""
+  echo "Chrome can be launched with: google-chrome"
+  echo "Or from the application menu."
+fi
 
