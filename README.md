@@ -288,10 +288,11 @@ YAMC includes a companion script called `yamcity` that allows you to automate th
 
 ### How It Works
 
-1. Create a profile file with one YAMC command per line (without the hostname)
+1. Create a profile file with module commands (one per line)
 2. Run yamcity with the hostname and profile file
 3. The script executes each command in sequence, applying the hostname to all of them
-4. Comprehensive logs are saved for each command and a summary is provided
+4. Profiles can include other profiles for modular composition
+5. Comprehensive logs are saved for each command and a summary is provided
 
 ### Usage
 
@@ -299,7 +300,7 @@ YAMC includes a companion script called `yamcity` that allows you to automate th
 # Basic usage
 ./yamcity -h hostname profile_file
 
-# With default username
+# With default username (used when line doesn't specify -u)
 ./yamcity -h hostname -u username profile_file
 
 # With verbose output
@@ -311,23 +312,49 @@ YAMC includes a companion script called `yamcity` that allows you to automate th
 
 ### Profile File Format
 
-Profile files are simple text files with one YAMC command per line:
+Profile files use a **module-first syntax** - the module name comes first, followed by arguments and options:
 
 ```
 # Comments start with a hash
-# Each non-comment line is appended to 'yamc -h hostname'
 
-# First, set up SSH access for root
-sshroot
+# Simple module (no arguments or options)
+timezone
 
-# Set timezone and locale as root user
--u root timezone America/Los_Angeles
+# Module with argument
+packages base
 
-# User preferences
-pref
+# Module with argument and user option
+packages desktop -u root
 
-# Run tests with arguments and environment variables
--e test_var1=hello test env
+# Module with multiple options
+bind9 -u root -p master -v
+
+# Include another profile (path must exist as a file)
+profiles/base
+./common-setup
+```
+
+**Key points:**
+- Module name is always the first word
+- Options (`-u`, `-p`, `-e`, `-v`, `-t`) can appear anywhere after the module
+- Options are automatically reordered before passing to yamc
+- If a line's first word is a file path, it's included as a nested profile
+- Circular includes are detected and prevented
+
+### Profile Composition
+
+You can build modular profiles by including others:
+
+```
+# profiles/workstation - includes base server + adds desktop
+
+# First, run the base server setup
+profiles/server
+
+# Then add desktop-specific modules
+packages desktop -u root
+xfce -u root
+chrome -u root
 ```
 
 ### Logging
@@ -340,10 +367,10 @@ The yamcity script creates a timestamped log directory for each run:
 
 ### Example
 
-To automate the setup of a new server:
+To automate the setup of a new workstation:
 
-1. Create a profile file (`server.profile`) with the desired configuration
-2. Run `./yamcity -h new_server server.profile`
+1. Create a profile file (`profiles/workstation`) with the desired configuration
+2. Run `./yamcity -h new_workstation profiles/workstation`
 3. Review the logs to ensure all modules executed successfully
 
 ## Future Enhancements

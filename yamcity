@@ -2,17 +2,36 @@
 # YAMCITY - YAMC Automation Wrapper
 # Runs a sequence of YAMC commands from a profile file
 # Automatically applies hostname to all commands
+#
+# Profile Syntax:
+#   module [args] [-u user] [-p profile] [-e VAR=val] [-v] [-t timeout]
+#   path/to/profile    # Include another profile (if file exists)
+#
+# The module name comes FIRST, followed by arguments and options.
+# Options are reordered before passing to yamc.
 
 set -e
 
 # Configuration
 YAMC_BIN="$(dirname "$0")/yamc"
-LOG_DIR="./yamc-logs/$(date +%Y%m%d_%H%M%S)"
-SUMMARY_LOG="$LOG_DIR/summary.log"
+LOG_DIR=""
+SUMMARY_LOG=""
+
+# Track visited profiles to prevent infinite recursion
+declare -a VISITED_PROFILES=()
+
+# Counters (global for recursive calls)
+declare -i TOTAL_COMMANDS=0
+declare -i SUCCESSFUL_COMMANDS=0
+declare -a FAILED_COMMANDS=()
 
 # Function to print to console and log
 log() {
-  echo "$@" | tee -a "$SUMMARY_LOG"
+  if [ -n "$SUMMARY_LOG" ]; then
+    echo "$@" | tee -a "$SUMMARY_LOG"
+  else
+    echo "$@"
+  fi
 }
 
 # Display usage
@@ -20,11 +39,11 @@ show_usage() {
   cat <<EOF
 YAMCITY - YAMC Automation Wrapper
 
-Usage: yamcity -h hostname [-u username] profile_file [continue_on_error]
+Usage: yamcity -h hostname [-u username] [-v] profile_file [continue_on_error]
 
 Options:
   -h hostname       Required. Target remote hostname to use for all commands
-  -u username       Optional. Default SSH username (can be overridden in profile)
+  -u username       Optional. Default SSH username (can be overridden per-line)
   -v                Optional. Enable verbose output
 
 Arguments:
@@ -33,16 +52,225 @@ Arguments:
 
 Profile File Format:
   # Comments start with a hash
-  # Each non-comment line is appended to 'yamc -h hostname'
+  # Module name comes FIRST, options can follow
   
   # Examples:
-  sshroot
-  -u root timezone America/Los_Angeles
-  -u root locale en_US.UTF-8
-  pref
+  timezone                          # Simple module
+  packages base                     # Module with argument
+  packages desktop -u root          # Module with arg and option
+  bind9 -u root -p master           # Module with multiple options
+  
+  # Include other profiles (path must exist as a file):
+  profiles/base                     # Include another profile
+  ./common                          # Relative path
+  
+Note: Options (-u, -p, -e, -v, -t) are automatically reordered for yamc.
 EOF
   exit 1
 }
+
+# Check if a profile has been visited (prevent infinite recursion)
+is_visited() {
+  local profile="$1"
+  local abs_path
+  abs_path=$(realpath "$profile" 2>/dev/null || echo "$profile")
+  
+  for visited in "${VISITED_PROFILES[@]}"; do
+    if [ "$visited" = "$abs_path" ]; then
+      return 0  # Already visited
+    fi
+  done
+  return 1  # Not visited
+}
+
+# Mark a profile as visited
+mark_visited() {
+  local profile="$1"
+  local abs_path
+  abs_path=$(realpath "$profile" 2>/dev/null || echo "$profile")
+  VISITED_PROFILES+=("$abs_path")
+}
+
+# Extract options from a line and reorder for yamc
+# Input: "packages base -u root -v"
+# Output: sets EXTRACTED_OPTS="-u root -v" and EXTRACTED_ARGS="packages base"
+extract_and_reorder() {
+  local line="$1"
+  EXTRACTED_OPTS=""
+  EXTRACTED_ARGS=""
+  
+  local -a words=()
+  local -a opts=()
+  local -a args=()
+  
+  # Split line into words
+  read -ra words <<< "$line"
+  
+  local i=0
+  local skip_next=false
+  
+  for word in "${words[@]}"; do
+    if $skip_next; then
+      skip_next=false
+      continue
+    fi
+    
+    case "$word" in
+      -u|-p|-r|-e|-t)
+        # Option with argument - add both to opts
+        opts+=("$word")
+        i=$((i + 1))
+        if [ $i -lt ${#words[@]} ]; then
+          opts+=("${words[$i]}")
+        fi
+        skip_next=true
+        ;;
+      -v)
+        # Flag option - add to opts
+        opts+=("$word")
+        ;;
+      -*)
+        # Unknown option - treat as argument (pass through)
+        args+=("$word")
+        ;;
+      *)
+        # Regular argument
+        args+=("$word")
+        ;;
+    esac
+    i=$((i + 1))
+  done
+  
+  EXTRACTED_OPTS="${opts[*]}"
+  EXTRACTED_ARGS="${args[*]}"
+}
+
+# Process a single profile file (can be called recursively)
+process_profile() {
+  local profile_file="$1"
+  local indent="${2:-}"  # Indentation for nested profiles
+  
+  # Check for recursion
+  if is_visited "$profile_file"; then
+    log "${indent}ERROR: Circular profile inclusion detected: $profile_file"
+    return 1
+  fi
+  mark_visited "$profile_file"
+  
+  # Validate profile file
+  if [ ! -f "$profile_file" ]; then
+    log "${indent}ERROR: Profile file '$profile_file' not found"
+    return 1
+  fi
+  
+  log "${indent}Processing profile: $profile_file"
+  
+  # Get directory of current profile for relative path resolution
+  local profile_dir
+  profile_dir=$(dirname "$profile_file")
+  
+  local line_number=0
+  
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_number=$((line_number + 1))
+    
+    # Skip empty lines and comments
+    if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+    
+    # Trim leading/trailing whitespace
+    line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    
+    # Get the first word (module name or profile path)
+    local first_word="${line%% *}"
+    
+    # Check if first word is a file (profile to include)
+    # Try both as-is and relative to current profile's directory
+    local include_path=""
+    if [ -f "$first_word" ]; then
+      include_path="$first_word"
+    elif [ -f "$profile_dir/$first_word" ]; then
+      include_path="$profile_dir/$first_word"
+    fi
+    
+    if [ -n "$include_path" ]; then
+      # It's a profile - recursively process it
+      log "${indent}--------------------------------------------------"
+      log "${indent}Including profile: $include_path"
+      
+      set +e
+      process_profile "$include_path" "${indent}  "
+      local exit_code=$?
+      set -e
+      
+      if [ $exit_code -ne 0 ]; then
+        FAILED_COMMANDS+=("${profile_file}:${line_number}: include '$first_word'")
+        if [ "$CONTINUE_ON_ERROR" != "true" ]; then
+          return 1
+        fi
+      fi
+    else
+      # It's a yamc command - extract options and execute
+      TOTAL_COMMANDS=$((TOTAL_COMMANDS + 1))
+      
+      # Extract and reorder options
+      extract_and_reorder "$line"
+      
+      # Build the full command
+      local full_command="-h $HOST"
+      
+      # Add default user if no -u in extracted opts and default is set
+      if [[ ! "$EXTRACTED_OPTS" =~ -u ]] && [ -n "$DEFAULT_USER" ]; then
+        full_command="$full_command -u $DEFAULT_USER"
+      fi
+      
+      # Add extracted options
+      if [ -n "$EXTRACTED_OPTS" ]; then
+        full_command="$full_command $EXTRACTED_OPTS"
+      fi
+      
+      # Add verbose if globally enabled and not already in opts
+      if [ "$VERBOSE" = true ] && [[ ! "$EXTRACTED_OPTS" =~ -v ]]; then
+        full_command="$full_command -v"
+      fi
+      
+      # Add module and arguments
+      full_command="$full_command $EXTRACTED_ARGS"
+      
+      # Create command-specific log files
+      local cmd_log="$LOG_DIR/cmd_${TOTAL_COMMANDS}.log"
+      local cmd_err="$LOG_DIR/cmd_${TOTAL_COMMANDS}.err"
+      
+      log "${indent}--------------------------------------------------"
+      log "${indent}[$TOTAL_COMMANDS] $YAMC_BIN $full_command"
+      
+      # Execute the YAMC command
+      set +e
+      $YAMC_BIN $full_command > >(tee "$cmd_log") 2> >(tee "$cmd_err" >&2)
+      local exit_code=$?
+      set -e
+      
+      if [ $exit_code -ne 0 ]; then
+        log "${indent}ERROR: Command failed with exit code $exit_code"
+        FAILED_COMMANDS+=("${profile_file}:${line_number}: '$line'")
+        
+        if [ "$CONTINUE_ON_ERROR" != "true" ]; then
+          return 1
+        fi
+      else
+        log "${indent}Command completed successfully"
+        SUCCESSFUL_COMMANDS=$((SUCCESSFUL_COMMANDS + 1))
+      fi
+    fi
+  done < "$profile_file"
+  
+  return 0
+}
+
+# ============================================================================
+# Main Script
+# ============================================================================
 
 # Parse command line options
 HOST=""
@@ -75,105 +303,50 @@ fi
 PROFILE_FILE="$1"
 CONTINUE_ON_ERROR="${2:-false}"
 
-# Validate profile file
+# Validate initial profile file
 if [ ! -f "$PROFILE_FILE" ]; then
   echo "Error: Profile file '$PROFILE_FILE' not found"
   exit 1
 fi
 
 # Create log directory
+LOG_DIR="./yamc-logs/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
+SUMMARY_LOG="$LOG_DIR/summary.log"
+
 echo "YAMCITY Automation Started: $(date)" > "$SUMMARY_LOG"
 echo "Host: $HOST" >> "$SUMMARY_LOG"
-if [ ! -z "$DEFAULT_USER" ]; then
+if [ -n "$DEFAULT_USER" ]; then
   echo "Default user: $DEFAULT_USER" >> "$SUMMARY_LOG"
 fi
 echo "Profile: $PROFILE_FILE" >> "$SUMMARY_LOG"
 echo "Continue on error: $CONTINUE_ON_ERROR" >> "$SUMMARY_LOG"
 echo "Verbose: $VERBOSE" >> "$SUMMARY_LOG"
-echo "--------------------------------------------------" >> "$SUMMARY_LOG"
+echo "==================================================" >> "$SUMMARY_LOG"
 
-# Process the profile file
-line_number=0
-failed_commands=()
-successful_commands=0
-total_commands=0
+log "YAMCITY - Starting automation for host: $HOST"
+log "=================================================="
 
-# Count non-comment, non-empty lines
-total_commands=$(grep -v '^\s*#' "$PROFILE_FILE" | grep -v '^\s*$' | wc -l)
-total_commands=$(echo "$total_commands" | tr -d ' ')  # Remove leading spaces
-
-log "Found $total_commands commands to execute"
-log "--------------------------------------------------"
-
-while IFS= read -r line || [ -n "$line" ]; do
-  line_number=$((line_number + 1))
-  
-  # Skip empty lines and comments
-  if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
-    continue
-  fi
-  
-  # Create command-specific log files
-  cmd_log="$LOG_DIR/cmd_${line_number}.log"
-  cmd_err="$LOG_DIR/cmd_${line_number}.err"
-  
-  # Construct the full command with hostname
-  if [[ "$line" == -* ]]; then
-    # Line already starts with options, just add hostname
-    full_command="-h $HOST $line"
-  else
-    # Line starts with module name, add hostname and possibly username
-    if [ ! -z "$DEFAULT_USER" ]; then
-      full_command="-h $HOST -u $DEFAULT_USER $line"
-    else
-      full_command="-h $HOST $line"
-    fi
-  fi
-  
-  # Add verbose flag if enabled
-  if [ "$VERBOSE" = true ]; then
-    full_command="-v $full_command"
-  fi
-  
-  log "Executing command [$line_number/$total_commands]: $YAMC_BIN $full_command"
-  
-  # Execute the YAMC command
-  set +e  # Temporarily disable exit on error
-  $YAMC_BIN $full_command > >(tee "$cmd_log") 2> >(tee "$cmd_err" >&2)
-  exit_code=$?
-  set -e  # Re-enable exit on error
-  
-  if [ $exit_code -ne 0 ]; then
-    log "ERROR: Command failed with exit code $exit_code"
-    failed_commands+=("Line $line_number: '$line'")
-    
-    # Stop on error if continue_on_error is not true
-    if [ "$CONTINUE_ON_ERROR" != "true" ]; then
-      log "Stopping execution due to error"
-      break
-    fi
-  else
-    log "Command completed successfully"
-    successful_commands=$((successful_commands + 1))
-  fi
-  
-  log "--------------------------------------------------"
-done < "$PROFILE_FILE"
+# Process the main profile (recursively handles includes)
+set +e
+process_profile "$PROFILE_FILE"
+main_exit_code=$?
+set -e
 
 # Print summary
+log "=================================================="
 log "YAMCITY Automation Completed: $(date)"
-log "Commands executed: $successful_commands/$total_commands"
+log "Commands executed: $SUCCESSFUL_COMMANDS / $TOTAL_COMMANDS"
 
-if [ ${#failed_commands[@]} -gt 0 ]; then
-  log "FAILED COMMANDS (${#failed_commands[@]}):"
-  for cmd in "${failed_commands[@]}"; do
+if [ ${#FAILED_COMMANDS[@]} -gt 0 ]; then
+  log "FAILED COMMANDS (${#FAILED_COMMANDS[@]}):"
+  for cmd in "${FAILED_COMMANDS[@]}"; do
     log "  - $cmd"
   done
   log "Logs saved to: $LOG_DIR"
   exit 1
 else
-  if [ "$successful_commands" -eq "$total_commands" ]; then
+  if [ "$SUCCESSFUL_COMMANDS" -eq "$TOTAL_COMMANDS" ]; then
     log "All commands completed successfully"
   else
     log "Some commands were not executed due to early termination"
