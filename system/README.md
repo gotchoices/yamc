@@ -98,9 +98,11 @@ yamc.local/system/
     └── sshd.sh          # systemctl restart sshd
 ```
 
-## Example: Keyboard Remapping (CapsLock → Control)
+## Examples
 
-The system module includes keyboard remapping configuration:
+### Keyboard Remapping (CapsLock → Control)
+
+Keyboard remapping configuration for both GUI and console:
 
 **For X11/GUI sessions:**
 ```
@@ -113,7 +115,31 @@ yamc.local/system/__edits__/keyboard.sed        # Edits /etc/default/keyboard
 yamc.local/system/__hooks__/keyboard.sh         # Applies with setupcon
 ```
 
-This remaps CapsLock to Control in both graphical and text console environments.
+### Shell Environment for GUI Terminals
+
+By default, GUI-launched terminals (xterm, etc.) don't source `/etc/profile.d/` scripts.
+This causes aliases and environment from `/etc/profile.d/local.sh` to be missing.
+
+**Fix:**
+```
+yamc.local/system/__edits__/bashrc.sed          # Makes /etc/bash.bashrc source profile.d/
+```
+
+This ensures non-login shells (GUI terminals) get the same environment as login shells (SSH).
+
+### LibreOffice NFS-Safe Wrapper
+
+For systems with NFS-mounted home directories, LibreOffice has locking conflicts across machines.
+
+**Solution:**
+```
+yamc.local/system/usr/local/bin/libreoffice    # Wrapper intercepts all LO calls
+yamc.local/system/etc/profile.d/local.sh       # Aliases: writer, calc, etc.
+```
+
+The wrapper is installed as `/usr/local/bin/libreoffice` (takes precedence over `/usr/bin/libreoffice`)
+and redirects all LibreOffice instances to use a local profile in `/var/tmp/`, avoiding NFS locks.
+This works for both CLI launches and GUI menu launches.
 
 ## Notes
 
