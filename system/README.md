@@ -98,6 +98,23 @@ yamc.local/system/
     └── sshd.sh          # systemctl restart sshd
 ```
 
+## Example: Keyboard Remapping (CapsLock → Control)
+
+The system module includes keyboard remapping configuration:
+
+**For X11/GUI sessions:**
+```
+yamc.local/system/etc/X11/xorg.conf.d/00-keyboard.conf
+```
+
+**For console (text mode):**
+```
+yamc.local/system/__edits__/keyboard.sed        # Edits /etc/default/keyboard
+yamc.local/system/__hooks__/keyboard.sh         # Applies with setupcon
+```
+
+This remaps CapsLock to Control in both graphical and text console environments.
+
 ## Notes
 
 - Edits are applied after copies, so you can copy a base file and then edit it
