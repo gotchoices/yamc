@@ -535,15 +535,27 @@ run_module() {
   fi
 
   # Check if subfunction script exists (either remote or local-only)
+  # If not, treat SUBFUNC as an argument and fall back to "setup"
   LOCAL_ONLY=false
-  if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
-    if [ -f "$MOD_DIR/${SUBFUNC}.loc" ]; then
-      # Local-only module - no remote script, just .loc
-      LOCAL_ONLY=true
-      log DEBUG "Detected local-only module: $MODULE/$SUBFUNC"
+  if [ ! -f "$MOD_DIR/$SUBFUNC" ] && [ ! -f "$MOD_DIR/${SUBFUNC}.loc" ]; then
+    # SUBFUNC script doesn't exist - check if "setup" exists
+    if [ -f "$MOD_DIR/setup" ] || [ -f "$MOD_DIR/setup.loc" ]; then
+      # "setup" exists, so SUBFUNC was actually an argument, not a subcommand
+      log DEBUG "No script '$SUBFUNC' found, treating as argument to 'setup'"
+      # Prepend SUBFUNC to MODULE_ARGS
+      MODULE_ARGS=("$SUBFUNC" "${MODULE_ARGS[@]}")
+      SUBFUNC="setup"
     else
       log ERROR "Neither '$SUBFUNC' nor '${SUBFUNC}.loc' found in module '$MODULE'"
       exit 1
+    fi
+  fi
+  
+  # Now check if we're using a local-only script
+  if [ ! -f "$MOD_DIR/$SUBFUNC" ]; then
+    if [ -f "$MOD_DIR/${SUBFUNC}.loc" ]; then
+      LOCAL_ONLY=true
+      log DEBUG "Detected local-only module: $MODULE/$SUBFUNC"
     fi
   fi
   
