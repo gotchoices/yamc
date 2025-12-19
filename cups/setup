@@ -3,7 +3,10 @@
 #
 # Usage: yamc -h hostname -u root cups
 #
-# Printers defined in yamc.local/cups/printers.conf
+# Structure in yamc.local/cups/:
+#   printers.conf     - Printer definitions
+#   ppd/              - Custom PPD files
+#   filters/          - Custom filter scripts
 
 set -e
 
@@ -25,14 +28,47 @@ if [ ! -f "$CUPSD_CONF.orig" ]; then
 fi
 
 # Allow connections from local network for administration
-if ! grep -q "Allow @LOCAL" "$CUPSD_CONF"; then
+if ! grep -q "Listen 631" "$CUPSD_CONF"; then
   echo "Configuring CUPS for local network access..."
-  # This is a simple approach - could be more sophisticated
   sed -i 's/Listen localhost:631/Listen 631/' "$CUPSD_CONF" 2>/dev/null || true
   systemctl restart cups
 fi
 
-# Process printer definitions if present
+# --- Deploy custom PPD files ---
+if [ -d "$MOD_TMP/ppd" ] && [ "$PPD_COUNT" -gt 0 ]; then
+  echo ""
+  echo "Installing $PPD_COUNT custom PPD file(s)..."
+  
+  PPD_DEST="/usr/share/cups/model"
+  mkdir -p "$PPD_DEST"
+  
+  for ppd in "$MOD_TMP/ppd"/*.ppd; do
+    [ -f "$ppd" ] || continue
+    ppdname=$(basename "$ppd")
+    echo "  $ppdname -> $PPD_DEST/"
+    cp "$ppd" "$PPD_DEST/"
+    chmod 644 "$PPD_DEST/$ppdname"
+  done
+fi
+
+# --- Deploy custom filter scripts ---
+if [ -d "$MOD_TMP/filters" ] && [ "$FILTER_COUNT" -gt 0 ]; then
+  echo ""
+  echo "Installing $FILTER_COUNT custom filter script(s)..."
+  
+  FILTER_DEST="/usr/local/bin"
+  mkdir -p "$FILTER_DEST"
+  
+  for filt in "$MOD_TMP/filters"/*; do
+    [ -f "$filt" ] || continue
+    filtname=$(basename "$filt")
+    echo "  $filtname -> $FILTER_DEST/"
+    cp "$filt" "$FILTER_DEST/"
+    chmod 755 "$FILTER_DEST/$filtname"
+  done
+fi
+
+# --- Configure printers ---
 if [ -z "$PRINTER_DEFS" ] || [ "$PRINTER_COUNT" = "0" ]; then
   echo ""
   echo "No printers to configure."
@@ -57,7 +93,7 @@ while IFS='|' read -r name uri desc driver opts; do
   echo "  URI: $uri"
   
   # Remove existing printer if present (for clean reconfiguration)
-  if lpstat -p "$name" 2>/dev/null; then
+  if lpstat -p "$name" &>/dev/null; then
     echo "  Removing existing configuration..."
     lpadmin -x "$name" 2>/dev/null || true
   fi
@@ -73,7 +109,14 @@ while IFS='|' read -r name uri desc driver opts; do
   # Use specified driver or default to driverless (everywhere)
   if [ -n "$driver" ]; then
     echo "  Driver: $driver"
-    CMD="$CMD -m \"$driver\""
+    # Check if it's a PPD file (ends with .ppd)
+    if [[ "$driver" == *.ppd ]]; then
+      # Use full path to PPD
+      CMD="$CMD -P \"/usr/share/cups/model/$driver\""
+    else
+      # Use driver name as-is (for built-in drivers)
+      CMD="$CMD -m \"$driver\""
+    fi
   else
     echo "  Driver: everywhere (driverless IPP)"
     CMD="$CMD -m everywhere"
@@ -108,4 +151,3 @@ echo "===== CUPS Configuration Complete ====="
 echo ""
 echo "Web admin: http://$(hostname):631"
 echo "Print test: lp -d PrinterName /usr/share/cups/data/testprint"
-

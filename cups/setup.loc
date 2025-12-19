@@ -2,9 +2,45 @@
 # cups/setup.loc - Prepare printer configuration locally
 #
 # Reads printer definitions from yamc.local/cups/printers.conf
+# Also copies custom PPD files and filter scripts if present
 
 PRINTERS_FILE="$RES_DIR/printers.conf"
+PPD_DIR="$RES_DIR/ppd"
+FILTERS_DIR="$RES_DIR/filters"
 
+# --- Copy PPD files if present ---
+PPD_COUNT=0
+if [ -d "$PPD_DIR" ]; then
+  mkdir -p "$MOD_TMP/ppd"
+  for ppd in "$PPD_DIR"/*.ppd; do
+    [ -f "$ppd" ] || continue
+    cp "$ppd" "$MOD_TMP/ppd/"
+    echo "  PPD: $(basename "$ppd")"
+    PPD_COUNT=$((PPD_COUNT + 1))
+  done
+  if [ $PPD_COUNT -gt 0 ]; then
+    echo "Found $PPD_COUNT custom PPD file(s)"
+  fi
+fi
+echo "PPD_COUNT=$PPD_COUNT" >> "$MOD_TMP/env"
+
+# --- Copy filter scripts if present ---
+FILTER_COUNT=0
+if [ -d "$FILTERS_DIR" ]; then
+  mkdir -p "$MOD_TMP/filters"
+  for filt in "$FILTERS_DIR"/*; do
+    [ -f "$filt" ] || continue
+    cp "$filt" "$MOD_TMP/filters/"
+    echo "  Filter: $(basename "$filt")"
+    FILTER_COUNT=$((FILTER_COUNT + 1))
+  done
+  if [ $FILTER_COUNT -gt 0 ]; then
+    echo "Found $FILTER_COUNT custom filter script(s)"
+  fi
+fi
+echo "FILTER_COUNT=$FILTER_COUNT" >> "$MOD_TMP/env"
+
+# --- Process printer definitions ---
 if [ ! -f "$PRINTERS_FILE" ]; then
   echo "WARNING: No printers.conf found at $RES_DIR/"
   echo "CUPS will be installed but no printers configured."
@@ -15,8 +51,10 @@ if [ ! -f "$PRINTERS_FILE" ]; then
   echo "Example:"
   echo "  B|dnssd://Brother%20MFC-L2750DW._ipp._tcp.local/|Basement Laser"
   echo "  M|ipp://192.168.5.220/ipp/print|Loft Laser"
+  echo "  L|socket://L.batemans.org|Label Printer|Epson-Label.ppd"
   echo ""
   echo "PRINTER_DEFS=\"\"" >> "$MOD_TMP/env"
+  echo "PRINTER_COUNT=0" >> "$MOD_TMP/env"
   exit 0
 fi
 
@@ -59,4 +97,3 @@ echo "Found $count printer(s) to configure"
 # Write to env file (base64 encode to preserve special chars)
 echo "PRINTER_DEFS=\"$(echo -n "$PRINTER_DEFS" | base64 -w0)\"" >> "$MOD_TMP/env"
 echo "PRINTER_COUNT=$count" >> "$MOD_TMP/env"
-

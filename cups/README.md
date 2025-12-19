@@ -1,6 +1,6 @@
 # CUPS Module
 
-Install CUPS and configure network printers.
+Install CUPS and configure network printers, including support for custom PPD files and filter scripts.
 
 ## Usage
 
@@ -8,7 +8,18 @@ Install CUPS and configure network printers.
 yamc -h hostname -u root cups
 ```
 
-## Configuration
+## Directory Structure
+
+```
+yamc.local/cups/
+├── printers.conf        # Printer definitions
+├── ppd/                 # Custom PPD files (optional)
+│   └── Epson-Label.ppd
+└── filters/             # Custom filter scripts (optional)
+    └── labfilt.sh
+```
+
+## Printer Configuration
 
 Create `yamc.local/cups/printers.conf`:
 
@@ -24,12 +35,35 @@ J|dnssd://Brother%20MFC-J6920DW._ipp._tcp.local/|Color Inkjet
 # Network printers via IP
 M|ipp://192.168.5.220/ipp/print|Loft Laser
 
-# Printer requiring specific driver
-L|socket://L.batemans.org|Label Printer|epson-label-driver
+# Printer with custom PPD (file must exist in ppd/ directory)
+L|socket://L.batemans.org|Label Printer|Epson-Label.ppd
 
 # Printer with options
 K|ipp://192.168.5.223/ipp/print|Photo Printer||Quality=Photo
 ```
+
+## Custom PPD Files
+
+For printers that need special handling (label printers, receipt printers, etc.):
+
+1. Place PPD file in `yamc.local/cups/ppd/`
+2. Reference it by filename in printers.conf (4th field)
+
+The module automatically:
+- Detects `.ppd` extension
+- Copies PPD to `/usr/share/cups/model/`
+- Uses `-P /path/to/ppd` instead of `-m driver`
+
+## Custom Filter Scripts
+
+PPD files can reference custom CUPS filters. Place filter scripts in `yamc.local/cups/filters/`:
+
+```bash
+# Example: yamc.local/cups/filters/labfilt.sh
+# Referenced in PPD as: *cupsFilter: "text/plain 0 /usr/local/bin/labfilt.sh"
+```
+
+The module copies filters to `/usr/local/bin/` with mode 755.
 
 ## Finding Printer URIs
 
@@ -57,8 +91,9 @@ The module uses `-m everywhere` by default. Only specify a driver for:
 
 1. Installs CUPS, hplip (HP drivers)
 2. Enables CUPS service
-3. Configures each printer via `lpadmin`
-4. Uses driverless IPP unless driver specified
+3. **Deploys custom PPD files** to `/usr/share/cups/model/`
+4. **Deploys filter scripts** to `/usr/local/bin/`
+5. Configures each printer via `lpadmin`
 
 ## Troubleshooting
 
@@ -84,5 +119,5 @@ tail -f /var/log/cups/error_log
 
 - If no printers.conf exists, CUPS is installed but no printers configured
 - Printers are removed and re-added on each run (clean configuration)
+- PPD and filter files are deployed before printer configuration
 - Web admin available at http://hostname:631
-
