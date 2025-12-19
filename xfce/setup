@@ -46,18 +46,14 @@ fi
 # 4. Ensure gnome-keyring unlocks on login (for password managers, etc.)
 echo "Checking PAM configuration for gnome-keyring..."
 if [ -f /etc/pam.d/lightdm ]; then
-  if ! grep -q "pam_gnome_keyring.so" /etc/pam.d/lightdm; then
-    echo "  Adding gnome-keyring to lightdm PAM config..."
-    # Add auto_start to auth section
-    if ! grep -q "pam_gnome_keyring.so auto_start" /etc/pam.d/lightdm; then
-      sed -i '/^auth.*pam_unix.so/a auth optional pam_gnome_keyring.so' /etc/pam.d/lightdm
-    fi
-    # Add to session section
-    if ! grep -q "pam_gnome_keyring.so auto_start" /etc/pam.d/lightdm; then
-      echo "session optional pam_gnome_keyring.so auto_start" >> /etc/pam.d/lightdm
-    fi
-  else
+  if grep -q "pam_gnome_keyring.so" /etc/pam.d/lightdm; then
     echo "  gnome-keyring already configured in PAM"
+  else
+    echo "  Adding gnome-keyring to lightdm PAM config..."
+    # Add to auth section (after pam_unix.so)
+    sed -i '/^auth.*pam_unix.so/a auth optional pam_gnome_keyring.so' /etc/pam.d/lightdm
+    # Add to session section
+    echo "session optional pam_gnome_keyring.so auto_start" >> /etc/pam.d/lightdm
   fi
 fi
 
