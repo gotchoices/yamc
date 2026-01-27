@@ -240,11 +240,9 @@ reverse_sshfs_mount() {
   mkfifo -m600 "$fifo"
   
   # Create the remote directory
-  ssh "$remotehost" "mkdir -p \"$remotepath\""
-  
-  # Check if the directory was created successfully
-  if [ $? -ne 0 ]; then
-    log ERROR "Failed to create directory on remote host"
+  if ! ssh "$remotehost" "mkdir -p \"$remotepath\""; then
+    local ssh_result=$?
+    log ERROR "Failed to create remote mount dir (exit $ssh_result)"
     rm -f "$fifo"
     return 1
   fi
@@ -257,11 +255,17 @@ reverse_sshfs_mount() {
   sleep 2
   
   # Verify the mount was successful
-  local mount_check=$(ssh "$remotehost" "[ -d \"$remotepath/\" ] && ls -la \"$remotepath/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'")
+  local mount_check
+  if ! mount_check=$(ssh "$remotehost" "[ -d \"$remotepath/\" ] && ls -la \"$remotepath/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'"); then
+    local ssh_result=$?
+    log ERROR "Failed to verify remote mount (exit $ssh_result)"
+    rm -f "$fifo"
+    return 1
+  fi
   
   if [ "$mount_check" != "mounted" ]; then
     log ERROR "Failed to mount remote directory. SSHFS mount unsuccessful."
-    log ERROR "Try running: yamc init -h $host -u $ssh_user"
+    log ERROR "Hint: rerun yamc init for this host and verify key-based SSH works."
     rm -f "$fifo"
     return 1
   fi
@@ -618,23 +622,17 @@ run_module() {
   # Test SSH connectivity first
   log INFO "Testing SSH connection to $SSH_USER@$HOST..."
 
-  # Try connecting with terminal allocation
-  ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "echo 'SSH connection successful'" >/dev/null 2>&1
-  SSH_RESULT=$?
-
-  if [ $SSH_RESULT -ne 0 ]; then
-    log ERROR "Cannot connect to $SSH_USER@$HOST (exit code: $SSH_RESULT)"
-    log ERROR "Please check:"
-    log ERROR "  - Hostname is correct"
-    log ERROR "  - Network connectivity to the host"
-    log ERROR "  - SSH service is running on remote host"
-    log ERROR "  - SSH key is properly installed"
-    log ERROR ""
-    log ERROR "Try manually with: ssh $SSH_USER@$HOST"
-    log ERROR "Or reinitialize with: yamc init -h $HOST -u username"
+  # NOTE: because this script runs with set -e, we must guard this probe inside
+  # an if to prevent a silent early exit when SSH fails.
+  if ssh -o BatchMode=yes -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "echo 'SSH connection successful'" >/dev/null 2>&1; then
+    log INFO "SSH connection successful"
+  else
+    SSH_RESULT=$?
+    log ERROR "SSH connect failed: $SSH_USER@$HOST (exit $SSH_RESULT)"
+    log ERROR "Hint: check hostname/DNS, then try: ssh $SSH_USER@$HOST"
+    log ERROR "If needed: yamc init -h $HOST -u <sudo_user>"
     exit 1
   fi
-  log INFO "SSH connection successful"
 
   # Process command-line environment variables
   ENV_FILE="$MOD_TMP/env"
@@ -679,16 +677,22 @@ run_module() {
       source "$MOD_DIR/${SUBFUNC}.loc" "${MODULE_ARGS[@]}"
     )
     
-    # Check exit status of local script
-    if [ $? -ne 0 ]; then
-      log ERROR "Local setup script failed with error code $?"
-      exit 1
+    # Check exit status of local script (must capture immediately)
+    LOCAL_SCRIPT_STATUS=$?
+    if [ $LOCAL_SCRIPT_STATUS -ne 0 ]; then
+      log ERROR "Local setup script failed with error code $LOCAL_SCRIPT_STATUS"
+      exit $LOCAL_SCRIPT_STATUS
     fi
   fi
 
   # Create remote temporary directory
   log INFO "Creating remote temporary directory..."
-  REMOTE_TMP=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-${MODULE}-XXXXXX")
+  if ! REMOTE_TMP=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-${MODULE}-XXXXXX"); then
+    SSH_RESULT=$?
+    log ERROR "Failed to create remote temp dir via SSH (exit $SSH_RESULT)"
+    log ERROR "Hint: ssh $SSH_USER@$HOST"
+    exit 1
+  fi
 
   if [ -z "$REMOTE_TMP" ]; then
     log ERROR "Failed to create temporary directory on remote host"
@@ -699,12 +703,10 @@ run_module() {
   log DEBUG "Local module dir: $MOD_DIR"
   log DEBUG "Remote temporary dir: $REMOTE_TMP"
 
-  # Mount the module directory on the remote host
-  reverse_sshfs_mount "$MOD_DIR" "$SSH_USER@$HOST" "$REMOTE_TMP" "$SFTP_SERVER"
-
-  # If mount failed, exit
-  if [ $? -ne 0 ]; then
-    log ERROR "Failed to set up file sharing. Cannot continue."
+  # Mount the module directory on the remote host (guarded for set -e)
+  if ! reverse_sshfs_mount "$MOD_DIR" "$SSH_USER@$HOST" "$REMOTE_TMP" "$SFTP_SERVER"; then
+    log ERROR "Failed to set up file sharing (reverse SSHFS)."
+    log ERROR "Hint: rerun yamc init for $HOST and verify sshfs is installed on the remote host."
     exit 1
   fi
 
@@ -715,7 +717,12 @@ run_module() {
     log INFO "Setting up resources file sharing..."
     
     # Create remote resources mount point
-    REMOTE_RES_DIR=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-res-XXXXXX")
+    if ! REMOTE_RES_DIR=$(ssh -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "mktemp -d /tmp/yamc-res-XXXXXX"); then
+      SSH_RESULT=$?
+      log ERROR "Failed to create remote resources dir via SSH (exit $SSH_RESULT)"
+      log ERROR "Hint: ssh $SSH_USER@$HOST"
+      exit 1
+    fi
     
     if [ -z "$REMOTE_RES_DIR" ]; then
       log ERROR "Failed to create resources directory on remote host"
@@ -728,7 +735,12 @@ run_module() {
     mkfifo -m600 "$RES_FIFO"
     
     # Create the remote directory and mount
-    ssh "$SSH_USER@$HOST" "mkdir -p \"$REMOTE_RES_DIR\""
+    if ! ssh "$SSH_USER@$HOST" "mkdir -p \"$REMOTE_RES_DIR\""; then
+      SSH_RESULT=$?
+      log ERROR "Failed to create resources mount point on remote host (exit $SSH_RESULT)"
+      log ERROR "Hint: ssh $SSH_USER@$HOST"
+      exit 1
+    fi
     
     log DEBUG "Starting SFTP server for resources"
     < "$RES_FIFO" "$SFTP_SERVER" | ssh "$SSH_USER@$HOST" "sshfs -o slave \":$RES_DIR\" \"$REMOTE_RES_DIR\"" > "$RES_FIFO" &
@@ -737,7 +749,14 @@ run_module() {
     sleep 2
     
     # Verify the mount was successful
-    local res_mount_check=$(ssh "$SSH_USER@$HOST" "[ -d \"$REMOTE_RES_DIR/\" ] && ls -la \"$REMOTE_RES_DIR/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'")
+    local res_mount_check
+    if ! res_mount_check=$(ssh "$SSH_USER@$HOST" "[ -d \"$REMOTE_RES_DIR/\" ] && ls -la \"$REMOTE_RES_DIR/\" >/dev/null 2>&1 && echo 'mounted' || echo 'failed'"); then
+      SSH_RESULT=$?
+      log ERROR "Failed to verify resources mount (exit $SSH_RESULT)"
+      log ERROR "Hint: ssh $SSH_USER@$HOST"
+      rm -f "$RES_FIFO"
+      exit 1
+    fi
     
     if [ "$res_mount_check" != "mounted" ]; then
       log ERROR "Failed to mount resources directory. SSHFS mount unsuccessful."
@@ -794,12 +813,10 @@ run_module() {
   log INFO "Running remote script: $SUBFUNC"
   log DEBUG "Remote command: cd $REMOTE_TMP && $ENV_EXPORTS ${RES_EXPORTS}MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
 
-  ssh -t -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "cd $REMOTE_TMP && $ENV_EXPORTS ${RES_EXPORTS}MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"
-
-  RESULT=$?
-  if [ $RESULT -ne 0 ]; then
-    log ERROR "Remote script execution failed with error code $RESULT"
-    exit 1
+  if ! ssh -t -o ConnectTimeout="$SSH_TIMEOUT" "$SSH_USER@$HOST" "cd $REMOTE_TMP && $ENV_EXPORTS ${RES_EXPORTS}MOD_DIR=$REMOTE_TMP MOD_TMP=$REMOTE_TMP/$RELATIVE_TMP bash $REMOTE_TMP/$SUBFUNC$MODULE_ARGS_STR"; then
+    RESULT=$?
+    log ERROR "Remote script execution failed (exit $RESULT)"
+    exit $RESULT
   fi
 
   log INFO "Module '$MODULE' completed successfully on '$HOST'"
