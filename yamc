@@ -88,6 +88,92 @@ EOF
 #
 # Host Initialization
 #
+
+#
+# Local Cache Helpers
+#
+detect_sftp_server() {
+  local sftp_server=""
+
+  # First check common locations
+  for path in "/usr/libexec/sftp-server" "/usr/lib/openssh/sftp-server" "$(which sftp-server 2>/dev/null)"; do
+    if [ -n "$path" ] && [ -x "$path" ]; then
+      sftp_server="$path"
+      break
+    fi
+  done
+
+  # If not found, try to search for it
+  if [ -z "$sftp_server" ]; then
+    for search_path in "/usr/lib" "/usr/libexec" "/usr/local/lib" "/opt"; do
+      if [ -d "$search_path" ]; then
+        found=$(find "$search_path" -name "sftp-server" -type f -executable 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+          sftp_server="$found"
+          break
+        fi
+      fi
+    done
+  fi
+
+  echo "$sftp_server"
+}
+
+ensure_local_cache() {
+  local local_cache_file="$CONFIG_DIR/yamc.env"
+  local saved_yamc_user="${YAMC_USER:-}"
+
+  # Load local cache if present
+  if [ -f "$local_cache_file" ]; then
+    # shellcheck disable=SC1090
+    source "$local_cache_file"
+  fi
+
+  # Restore YAMC_USER to avoid local cache accidentally affecting SSH user precedence
+  if [ -n "$saved_yamc_user" ]; then
+    YAMC_USER="$saved_yamc_user"
+  else
+    unset YAMC_USER 2>/dev/null || true
+  fi
+
+  # If cached value exists and is valid, we're done
+  if [ -n "${YAMC_SFTP_SERVER:-}" ] && [ -x "${YAMC_SFTP_SERVER:-}" ]; then
+    return 0
+  fi
+
+  log INFO "Detecting sftp-server path (local cache: $local_cache_file)"
+  local sftp_server
+  sftp_server="$(detect_sftp_server)"
+
+  if [ -z "$sftp_server" ]; then
+    log ERROR "Could not find sftp-server binary on the local system."
+    log ERROR "Please install OpenSSH (client/server) or locate sftp-server manually."
+    return 1
+  fi
+
+  log INFO "Found sftp-server at: $sftp_server"
+
+  # Write (or refresh) local cache
+  cat > "$local_cache_file" <<EOF
+# YAMC local cache (generated)
+# Generated on $(date)
+YAMC_SFTP_SERVER=$sftp_server
+EOF
+
+  # Reload cache so caller sees YAMC_SFTP_SERVER
+  # shellcheck disable=SC1090
+  source "$local_cache_file"
+
+  # Re-apply saved YAMC_USER again (see above)
+  if [ -n "$saved_yamc_user" ]; then
+    YAMC_USER="$saved_yamc_user"
+  else
+    unset YAMC_USER 2>/dev/null || true
+  fi
+
+  return 0
+}
+
 init_host() {
   local host="$1"
   local ssh_user="$2"
@@ -99,6 +185,11 @@ init_host() {
   # Create config file for this host
   local host_config_file="$CONFIG_DIR/${host}.env"
   rm -f "$host_config_file" 2>/dev/null || true
+
+  # Ensure local cache exists (sftp-server path, etc.)
+  if ! ensure_local_cache; then
+    return 1
+  fi
   
   # Ensure an SSH key exists locally
   if [ ! -f "$HOME/.ssh/id_rsa" ] && [ ! -f "$HOME/.ssh/id_ed25519" ]; then
@@ -154,58 +245,15 @@ init_host() {
     log INFO "SSHFS is already installed on $host"
   fi
   
-  # Find sftp-server path on local system
-  log INFO "Detecting sftp-server path..."
-  local sftp_server=""
-  
-  # First check common locations - prioritize macOS path
-  for path in "/usr/libexec/sftp-server" "/usr/lib/openssh/sftp-server" "$(which sftp-server 2>/dev/null)"; do
-    if [ -x "$path" ]; then
-      sftp_server="$path"
-      break
-    fi
-  done
-  
-  # If not found, try to search for it
-  if [ -z "$sftp_server" ]; then
-    for search_path in "/usr/lib" "/usr/libexec" "/usr/local/lib" "/opt"; do
-      if [ -d "$search_path" ]; then
-        found=$(find "$search_path" -name "sftp-server" -type f -executable 2>/dev/null | head -1)
-        if [ ! -z "$found" ]; then
-          sftp_server="$found"
-          break
-        fi
-      fi
-    done
-  fi
-  
-  # Check if we found the sftp-server
-  if [ -z "$sftp_server" ]; then
-    log ERROR "Could not find sftp-server binary on the local system."
-    log ERROR "Please install OpenSSH server or locate sftp-server manually."
-    return 1
-  fi
-  
-  log INFO "Found sftp-server at: $sftp_server"
-  
-  # Store configuration information in host config file
-  log INFO "Saving configuration to $host_config_file"
+  # Store minimal host preferences in host config file
+  log INFO "Saving host preferences to $host_config_file"
   cat > "$host_config_file" <<EOF
 # YAMC environment configuration for $host
 # Generated on $(date)
 # Do not edit manually - rerun 'yamc init' to regenerate
 
-# SSH settings
-YAMC_SSH_USER=$ssh_user
-YAMC_SSH_HOST=$host
-YAMC_SSH_KEY_INSTALLED=true
-
-# SSHFS settings
-YAMC_SSHFS_INSTALLED=true
-YAMC_SFTP_SERVER=$sftp_server
-
-# Additional discovered settings
-YAMC_INIT_TIMESTAMP=$(date +%s)
+# Host default SSH user (regular / bootstrap user; do not store root here)
+YAMC_USER=$ssh_user
 EOF
   
   log INFO "Host $host successfully initialized"
@@ -231,7 +279,7 @@ reverse_sshfs_mount() {
   # Check if sftp-server exists
   if [ ! -x "$sftp_server" ]; then
     log ERROR "SFTP server binary not found at: $sftp_server"
-    log ERROR "Please run yamc init to configure the system correctly."
+    log ERROR "Please ensure the local cache is present (or rerun 'yamc init')"
     return 1
   fi
   
@@ -346,7 +394,7 @@ parse_init_command() {
   while getopts "h:u:vt:" opt "$@"; do
     case $opt in
       h) HOST="$OPTARG" ;;
-      u) SSH_USER="$OPTARG" ;;
+      u) SSH_USER="$OPTARG" ; CLI_SSH_USER_SPECIFIED=true ;;
       v) VERBOSE=true ;;
       t) SSH_TIMEOUT="$OPTARG" ;;
       *) show_usage ;;
@@ -377,7 +425,7 @@ parse_module_command() {
   while getopts "h:u:p:r:e:vt:" opt "$@"; do
     case $opt in
       h) HOST="$OPTARG" ;;
-      u) SSH_USER="$OPTARG" ;;
+      u) SSH_USER="$OPTARG" ; CLI_SSH_USER_SPECIFIED=true ;;
       p) PROFILE="$OPTARG" ;;
       r) RESOURCES_PATH="$OPTARG" ;;
       e) ENV_VARS+=("$OPTARG") ;;
@@ -562,6 +610,34 @@ run_module() {
       log DEBUG "Detected local-only module: $MODULE/$SUBFUNC"
     fi
   fi
+
+  #
+  # Load Optional Host + Module Environment
+  #
+  HOST_CONFIG_FILE="$CONFIG_DIR/${HOST}.env"
+  if [ -f "$HOST_CONFIG_FILE" ]; then
+    log DEBUG "Loading host preferences from $HOST_CONFIG_FILE"
+    # shellcheck disable=SC1090
+    source "$HOST_CONFIG_FILE"
+  else
+    log DEBUG "No host preferences found at $HOST_CONFIG_FILE (this is OK)"
+  fi
+
+  MODULE_ENV_FILE="$MOD_DIR/yamc.env"
+  if [ -f "$MODULE_ENV_FILE" ]; then
+    log DEBUG "Loading module defaults from $MODULE_ENV_FILE"
+    # shellcheck disable=SC1090
+    source "$MODULE_ENV_FILE"
+  fi
+
+  # Resolve SSH user precedence (CLI -u overrides everything)
+  if [ "$CLI_SSH_USER_SPECIFIED" != true ]; then
+    if [ -n "${YAMC_USER:-}" ]; then
+      SSH_USER="$YAMC_USER"
+    else
+      SSH_USER="$(whoami)"
+    fi
+  fi
   
   #
   # Handle Local-Only Modules
@@ -601,19 +677,12 @@ run_module() {
     exit $LOCAL_EXIT
   fi
 
-  # Check if host has been initialized
-  HOST_CONFIG_FILE="$CONFIG_DIR/${HOST}.env"
-  if [ ! -f "$HOST_CONFIG_FILE" ]; then
-    log ERROR "Host $HOST has not been initialized for YAMC"
-    log ERROR "Please run 'yamc init -h $HOST -u username' first"
+  # Ensure local cache exists (sftp-server path, etc.)
+  if ! ensure_local_cache; then
     exit 1
   fi
 
-  # Load the host configuration
-  log DEBUG "Loading host configuration from $HOST_CONFIG_FILE"
-  source "$HOST_CONFIG_FILE"
-
-  # Use loaded SFTP server path
+  # Use cached local SFTP server path
   SFTP_SERVER="$YAMC_SFTP_SERVER"
 
   # Show summary of what we're doing
@@ -632,6 +701,17 @@ run_module() {
     log ERROR "Hint: check hostname/DNS, then try: ssh $SSH_USER@$HOST"
     log ERROR "If needed: yamc init -h $HOST -u <sudo_user>"
     exit 1
+  fi
+
+  # If this is the first successful connection from this local machine, cache the non-root user
+  if [ ! -f "$HOST_CONFIG_FILE" ] && [ -n "$SSH_USER" ] && [ "$SSH_USER" != "root" ]; then
+    log INFO "Caching host default user to $HOST_CONFIG_FILE"
+    cat > "$HOST_CONFIG_FILE" <<EOF
+# YAMC environment configuration for $HOST
+# Generated on $(date)
+# Host default SSH user (regular / bootstrap user; do not store root here)
+YAMC_USER=$SSH_USER
+EOF
   fi
 
   # Process command-line environment variables
@@ -838,6 +918,7 @@ ENV_VARS=()
 VERBOSE=false
 SSH_TIMEOUT="$DEFAULT_SSH_TIMEOUT"
 INIT_MODE=false
+CLI_SSH_USER_SPECIFIED=false
 
 # Look for "init" as first non-option argument
 # First, check if the very first argument is "init"

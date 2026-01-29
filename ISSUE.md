@@ -160,24 +160,24 @@ Important: this posture may require a TTY and user interaction; it should be ent
 
 ### Phase 1: local cache (`yamc.env`)
 
-- [ ] Add helper to read/write `~/.yamc/yamc.env` (local cache)
-- [ ] Add `ensure_local_cache()` (self-heal):
-  - [ ] detect `sftp-server` path robustly
-  - [ ] validate cached value is executable
-  - [ ] refresh cache if missing/invalid
-- [ ] Update module execution path to use local cache for local settings (e.g., `YAMC_SFTP_SERVER`)
+- [x] Add helper to read/write `~/.yamc/yamc.env` (local cache)
+- [x] Add `ensure_local_cache()` (self-heal):
+  - [x] detect `sftp-server` path robustly
+  - [x] validate cached value is executable
+  - [x] refresh cache if missing/invalid
+- [x] Update module execution path to use local cache for local settings (e.g., `YAMC_SFTP_SERVER`)
 
 ### Phase 2: host cache becomes optional
 
-- [ ] Update execution path so missing `~/.yamc/<host>.env` does **not** block running
-- [ ] If present, use it to supply default `YAMC_USER` (SSH login user), but allow precedence rules to override
-- [ ] Ensure behavior is correct when `<host>.env` exists but is stale (no “hard trust”)
-- [ ] Create `~/.yamc/<host>.env` on first successful run that has a non-root `YAMC_USER` to write
+- [x] Update execution path so missing `~/.yamc/<host>.env` does **not** block running
+- [x] If present, use it to supply default `YAMC_USER` (SSH login user), but allow precedence rules to override
+- [x] Ensure behavior is correct when `<host>.env` exists but is stale (no “hard trust”)
+- [x] Create `~/.yamc/<host>.env` on first successful run that has a non-root `YAMC_USER` to write
 
 ### Phase 3: module metadata (optional)
 
-- [ ] Support `yamc/<module>/yamc.env` as an optional default source (primarily for `YAMC_USER` / permission preference)
-- [ ] Confirm precedence interaction: `-u` > `module/yamc.env` > `~/.yamc/<host>.env` > ambient `YAMC_USER`
+- [x] Support `yamc/<module>/yamc.env` as an optional default source (primarily for `YAMC_USER` / permission preference)
+- [x] Confirm precedence interaction: `-u` > `module/yamc.env` > `~/.yamc/<host>.env` > ambient `YAMC_USER`
 
 ### Phase 4: docs + tests
 
@@ -193,10 +193,10 @@ Important: this posture may require a TTY and user interaction; it should be ent
 
 ## Acceptance criteria
 
-- [ ] On a fresh local machine with working SSH access to an already-initialized host:
-  - [ ] `yamc -h <host> <module>` works without running `yamc init`
-- [ ] If `~/.yamc/yamc.env` is missing or contains a bad `sftp-server` path:
-  - [ ] YAMC repairs it automatically and proceeds
+- [x] On a fresh local machine with working SSH access to an already-initialized host:
+  - [x] `yamc -h <host> <module>` works without running `yamc init`
+- [x] If `~/.yamc/yamc.env` is missing or contains a bad `sftp-server` path:
+  - [x] YAMC repairs it automatically and proceeds
 - [ ] If SSH fails, YAMC emits an actionable diagnosis:
   - [ ] distinguishes network/DNS vs host key mismatch vs auth failure (best-effort)
 - [ ] Explicit `yamc init` still works as the primary onboarding/repair command
