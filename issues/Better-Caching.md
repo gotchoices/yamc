@@ -181,13 +181,13 @@ Important: this posture may require a TTY and user interaction; it should be ent
 
 ### Phase 4: docs + tests
 
-- [ ] Update `yamc/README.md`:
-  - [ ] explain local vs host cache
-  - [ ] explain when `init` is required vs optional
-- [ ] Extend `yamc/test` module to validate:
-  - [ ] no host cache file present still runs when SSH works
-  - [ ] local cache regeneration works
-  - [ ] error output remains “report and exit” (no implicit init)
+- [x] Update `yamc/README.md`:
+  - [x] explain local vs host cache
+  - [x] explain when `init` is required vs optional
+- [x] Extend `yamc/test` module to validate:
+  - [x] no host cache file present still runs when SSH works
+  - [x] local cache regeneration works
+  - [x] error output remains “report and exit” (no implicit init)
 
 ---
 
@@ -197,9 +197,9 @@ Important: this posture may require a TTY and user interaction; it should be ent
   - [x] `yamc -h <host> <module>` works without running `yamc init`
 - [x] If `~/.yamc/yamc.env` is missing or contains a bad `sftp-server` path:
   - [x] YAMC repairs it automatically and proceeds
-- [ ] If SSH fails, YAMC emits an actionable diagnosis:
-  - [ ] distinguishes network/DNS vs host key mismatch vs auth failure (best-effort)
-- [ ] Explicit `yamc init` still works as the primary onboarding/repair command
+- [x] If SSH fails, YAMC emits an actionable diagnosis:
+  - [x] distinguishes network/DNS vs host key mismatch vs auth failure (best-effort)
+- [x] Explicit `yamc init` still works as the primary onboarding/repair command
 
 ---
 

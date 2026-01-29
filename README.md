@@ -14,7 +14,7 @@ YAMC enables you to:
 ## Architecture
 
 YAMC follows these key principles:
-1. Initial setup is done once per target host with the `init` command
+1. Initial setup is usually done once per target host with the `init` command (recommended)
 2. Each configuration task is organized as a module in its own directory
 3. Modules can contain both local and remote execution scripts
 4. Local directory contents are shared with the remote system via SSH and SSHFS
@@ -23,14 +23,14 @@ YAMC follows these key principles:
 ## Usage
 
 ```
-# Initialize a host first (required once per host)
+# Initialize a host first (recommended once per host)
 yamc init -h remote_hostname [-u username] [-v] [-t timeout]
 
-# Run modules after initialization
+# Run modules
 yamc -h remote_hostname [-u username] [-e var=value] [-v] [-t timeout] module [subfunction] [args...]
 ```
 
-- `init`: One-time initialization command that sets up SSH key authentication and installs SSHFS
+- `init`: Initialization command that sets up SSH key authentication and ensures SSHFS exists on the remote host
 - `-h remote_hostname`: Required. Specifies the target machine to configure
 - `-u username`: Optional. SSH username (defaults to current user)
 - `-e var=value`: Optional. Environment variables to pass to scripts (can be used multiple times)
@@ -66,22 +66,24 @@ When you run `yamc init -h hostname -u username`:
 1. YAMC checks for a local SSH key, generating one if needed
 2. The SSH key is installed on the remote machine using ssh-copy-id for the specified user
 3. SSHFS is installed on the remote machine if not already present
-4. Host-specific configuration is saved to `~/.yamc/hostname.env`
+4. Host preferences are saved to `~/.yamc/hostname.env`
 
 Important: The initialization must be run with the regular, unprivileged user account on the remote machine. This user must have sudo privileges to install packages. This initialization only needs to be run once per host, setting up passwordless SSH authentication and all required dependencies.
 
 ### Module Execution Phase
 
-After initialization, when you run `yamc -h hostname module`:
+When you run `yamc -h hostname module`:
 
-1. YAMC loads the host's saved configuration from `~/.yamc/hostname.env`
-2. It determines the module directory and looks for scripts to execute
+1. YAMC ensures local prerequisites are available (e.g., local `sftp-server` path cached in `~/.yamc/yamc.env`)
+2. It optionally loads host preferences from `~/.yamc/hostname.env` (if present)
 3. If a `setup.loc` script exists, it's executed locally to prepare resources
 4. A temporary directory is created for data exchange
 5. Variables `MOD_DIR` and `MOD_TMP` are created to reference paths for both machines
 6. The local module directory is shared with the remote machine using an SFTP server and SSHFS in slave mode
 7. The remote script is executed on the target machine, with access to local files
 8. After execution, the temporary resources are cleaned up
+
+Note: `yamc init` is still the recommended onboarding step. However, if the host is already reachable via SSH and has `sshfs` installed, modules can run even if `~/.yamc/hostname.env` does not exist on the current local machine.
 
 ### SSH File Sharing Implementation
 
@@ -248,7 +250,7 @@ Currently targeted for Ubuntu systems. Future versions may support additional di
 ## Implementation Notes
 
 - The initialization process is only run once per target host
-- Host configurations are cached in `~/.yamc/hostname.env`
+- Host preferences are cached in `~/.yamc/hostname.env` (optional), and local machine cache is in `~/.yamc/yamc.env`
 - Error checking has been implemented for SSH connections and command execution
 - The script uses temporary directories that are cleaned up after execution
 - A timeout mechanism prevents hung connections
@@ -259,8 +261,8 @@ Currently targeted for Ubuntu systems. Future versions may support additional di
 YAMC includes a test module to verify functionality. To use it:
 
 ```bash
-# Initialize the host first
-yamc init -h your_remote_host
+# Initialize the host if needed
+yamc init -h your_remote_host -u <sudo_user>
 
 # Basic functionality test
 yamc -h your_remote_host test

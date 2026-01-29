@@ -25,11 +25,12 @@ The test module includes three main test functions:
 
 ## Usage
 
-Before running these tests, you must first initialize your target host:
+You can run these tests against any host that is already reachable via SSH and has `sshfs` installed (required for YAMC's reverse mount).
+If you haven't configured the host yet, run `yamc init -h your_remote_host -u <sudo_user>` first.
 
 ```bash
-# Initialize host (required once per host)
-yamc -h your_remote_host -u username init
+# Initialize host if needed (sets up SSH keys and ensures sshfs exists on the remote)
+yamc -h your_remote_host -u <sudo_user> init
 ```
 
 ### Basic Functionality Test

@@ -3,6 +3,7 @@
 # Creates a test file in the temporary directory
 
 echo "Test module - Local setup running..."
+echo "Local cache (YAMC_SFTP_SERVER) = ${YAMC_SFTP_SERVER:-"(not set)"}"
 
 # Create a test file with some content
 TEST_FILE="$MOD_TMP/test_file.txt"
